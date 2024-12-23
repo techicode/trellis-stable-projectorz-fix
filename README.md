@@ -3,7 +3,7 @@ A One-click installer for Windows: [(Python 3.11, Cuda 11.8, Torch 2.1.2)](https
 Repository for integration with the [StableProjectorz](https://stableprojectorz.com/), a free AI-texturing tool.<br>
 Our Discord server: [here](https://discord.gg/aWbnX2qan2)
 
-People confirmed it runs fine on Nvidia GPUs with 8GB vram (RTX 3070)
+People confirmed it runs fine on Nvidia GPUs with 8GB vram (RTX 3070ti)
 <br><br>
 <h2>Original Trellis Repo description:</h2>
 
