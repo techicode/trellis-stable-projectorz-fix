@@ -3,8 +3,8 @@
 Repository for integration with the [StableProjectorz](https://stableprojectorz.com/), a free AI-texturing tool.<br>
 [Our Discord server](https://discord.gg/aWbnX2qan2)
 
-
-Original Trellis Repo description:
+<h2>Original Trellis Repo description:</h2>
+<br>
 
 <img src="assets/logo.webp" width="100%" align="center">
 <h1 align="center">Structured 3D Latents<br>for Scalable and Versatile 3D Generation</h1>
