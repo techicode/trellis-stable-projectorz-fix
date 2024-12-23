@@ -1,0 +1,16 @@
+ninja 
+packaging 
+easydict 
+opencv-python-headless 
+scipy 
+rembg 
+onnxruntime 
+trimesh 
+xatlas 
+pyvista 
+pymeshfix 
+igraph 
+transformers 
+imageio 
+imageio-ffmpeg 
+tqdm
