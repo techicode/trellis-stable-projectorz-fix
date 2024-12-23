@@ -6,6 +6,8 @@ Our Discord server: [here](https://discord.gg/aWbnX2qan2)
 <h2>Original Trellis Repo description:</h2>
 <br><br><br>
 
+People confirmed it runs fine on Nvidia GPUs with 8GB vram (RTX 3070)
+
 <img src="assets/logo.webp" width="100%" align="center">
 <h1 align="center">Structured 3D Latents<br>for Scalable and Versatile 3D Generation</h1>
 <p align="center"><a href="https://arxiv.org/abs/2412.01506"><img src='https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv&logoColor=white' alt='arXiv'></a>
