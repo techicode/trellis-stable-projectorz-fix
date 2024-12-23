@@ -1,3 +1,11 @@
+[One-click installer for Windows (Python 3.11, Cuda 11.8, Torch 2.1.2)](https://github.com/IgorAherne/trellis-stable-projectorz/releases/tag/latest)
+
+Repository for integration with the [StableProjectorz](https://stableprojectorz.com/), a free AI-texturing tool.<br>
+[Our Discord server](https://discord.gg/aWbnX2qan2)
+
+
+Original Trellis Repo description:
+
 <img src="assets/logo.webp" width="100%" align="center">
 <h1 align="center">Structured 3D Latents<br>for Scalable and Versatile 3D Generation</h1>
 <p align="center"><a href="https://arxiv.org/abs/2412.01506"><img src='https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv&logoColor=white' alt='arXiv'></a>
