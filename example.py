@@ -1,9 +1,12 @@
 import os
-# os.environ['ATTN_BACKEND'] = 'xformers'   # Can be 'flash-attn' or 'xformers', default is 'flash-attn'
+import sys
+sys.path.append(os.getcwd())#needed, else will get error  ModuleNotFoundError: No module named 'trellis'
+
+#using xformers to support more people:
+os.environ['ATTN_BACKEND'] = 'xformers'    # Can be 'flash-attn' or 'xformers', default is 'flash-attn'
 os.environ['SPCONV_ALGO'] = 'native'        # Can be 'native' or 'auto', default is 'auto'.
                                             # 'auto' is faster but will do benchmarking at the beginning.
                                             # Recommended to set to 'native' if run only once.
-
 import imageio
 from PIL import Image
 from trellis.pipelines import TrellisImageTo3DPipeline
