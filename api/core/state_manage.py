@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 # Add trellis to Python path 
-sys.path.append(os.getcwd()+"/../..")
+sys.path.append(os.getcwd()+"/../")
 
 from trellis.pipelines import TrellisImageTo3DPipeline
 

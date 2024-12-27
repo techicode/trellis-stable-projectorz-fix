@@ -8,7 +8,7 @@ class TaskStatus(str, Enum):
     COMPLETE = "complete"
     FAILED = "failed"
 
-class GenerationParams(BaseModel):
+class GenerationArg(BaseModel):
     seed: int = 1
     ss_guidance_strength: float = Field(7.5, gt=0)
     ss_sampling_steps: int = Field(12, gt=0, le=50)
@@ -19,15 +19,14 @@ class GenerationParams(BaseModel):
     mesh_simplify_ratio: float = Field(0.95, gt=0, le=1)
     texture_size: int = Field(1024, gt=0)
     output_format: str = "glb"
-    preview_only: bool = False
 
 class GenerationResponse(BaseModel):
     task_id: str
     status: TaskStatus
     progress: int = 0
     message: str = ""
-    preview_urls: Optional[Dict[str, str]]
-    model_url: Optional[str]
+    preview_urls: Optional[Dict[str, str]] = None
+    model_url: Optional[str] = None
 
 class StatusResponse(BaseModel):
     task_id: str

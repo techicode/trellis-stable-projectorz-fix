@@ -28,7 +28,7 @@ class TaskManager:
         self.tasks[task_id] = task
         return task
     
-    def update_taks(self, task_id, progress: int, message: str, 
+    def update_task(self, task_id, progress: int, message: str, 
                     status: Optional[TaskStatus] = None, outputs: Optional[Dict] = None):
         self.tasks[task_id].update(progress, message, status, outputs)
 
