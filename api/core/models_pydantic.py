@@ -33,3 +33,6 @@ class StatusResponse(BaseModel):
     status: TaskStatus
     progress: int
     message: str
+
+class CurrentTaskResponse(BaseModel):
+    current_task_id: Optional[str] = None

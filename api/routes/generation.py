@@ -12,7 +12,7 @@ import torch
 import imageio
 
 from core.state_manage import state
-from core.models_pydantic import GenerationArg, GenerationResponse, TaskStatus
+from core.models_pydantic import GenerationArg, GenerationResponse, TaskStatus, CurrentTaskResponse
 from core.tasks_manage import task_manager
 from core.files_manage import file_manager
 
@@ -21,6 +21,8 @@ from trellis.pipelines import TrellisImageTo3DPipeline
 from trellis.utils import render_utils, postprocessing_utils
 
 router = APIRouter()
+
+current_task_id = None
 
 # Global lock to enforce only one generation at a time
 generation_lock = asyncio.Lock()
@@ -172,6 +174,15 @@ async def root():
     }
 
 
+@router.get("/current_task_id", response_model=CurrentTaskResponse)
+async def get_current_task_id():
+    """
+    Retrieve the ID of the most recent generation, if any.
+    This will allow you to query the progress while the generation still hasn't returned.
+    """
+    return CurrentTaskResponse(current_task_id=current_task_id)
+
+
 @router.post("/generate_no_preview", response_model=GenerationResponse)
 async def generate_no_preview(
     file: Optional[UploadFile] = File(None),
@@ -186,9 +197,13 @@ async def generate_no_preview(
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=503, detail="Server is busy with another generation task")
-
+    
     task_id = str(uuid.uuid4())
     task_manager.create_task(task_id)
+
+    global current_task_id
+    current_task_id = task_id
+
     try:
         # Validate
         _gen_3d_validate_params(file, image_base64, arg)
@@ -225,6 +240,7 @@ async def generate_no_preview(
         await cleanup_task_files(task_id)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        current_task_id = None
         generation_lock.release()
 
 
@@ -242,9 +258,13 @@ async def generate_preview(
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=503, detail="Server is busy with another generation task")
-
+    
     task_id = str(uuid.uuid4())
     task_manager.create_task(task_id)
+
+    global current_task_id 
+    current_task_id = task_id
+
     try:
         # Validate
         _gen_3d_validate_params(file, image_base64, arg)
@@ -294,6 +314,7 @@ async def generate_preview(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         generation_lock.release()
+        current_task_id = None
 
 
 @router.post("/resume_from_preview/{task_id}", response_model=GenerationResponse)
@@ -326,6 +347,9 @@ async def resume_from_preview(
         outputs = task.outputs
         if not outputs:
             raise HTTPException(status_code=400, detail="No pipeline outputs found in memory for this task")
+        
+        global current_task_id
+        current_task_id = task_id
 
         # Generate final GLB
         task_manager.update_task(task_id, 70, "Generating GLB file...")
@@ -347,6 +371,7 @@ async def resume_from_preview(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         generation_lock.release()
+        current_task_id = None
 
 
 @router.get("/status/{task_id}")
