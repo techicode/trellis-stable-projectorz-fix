@@ -2,11 +2,13 @@ from enum import Enum
 from typing import Optional, Dict
 from pydantic import BaseModel, Field
 
+
 class TaskStatus(str, Enum):
     PROCESSING = "processing"
     PREVIEW_READY = "preview_ready"
     COMPLETE = "complete"
     FAILED = "failed"
+
 
 class GenerationArg(BaseModel):
     seed: int = 1
@@ -20,19 +22,20 @@ class GenerationArg(BaseModel):
     texture_size: int = Field(1024, gt=0, le=4096)
     output_format: str = "glb"
 
+
 class GenerationResponse(BaseModel):
-    task_id: str
+    # No task_id anymore, we focus on a single generation
     status: TaskStatus
     progress: int = 0
     message: str = ""
+    # Only used if we did “generate_preview”
     preview_urls: Optional[Dict[str, str]] = None
+    # Only used if generation is complete
     model_url: Optional[str] = None
 
+
 class StatusResponse(BaseModel):
-    task_id: str
     status: TaskStatus
     progress: int
     message: str
-
-class CurrentTaskResponse(BaseModel):
-    current_task_id: Optional[str] = None
+    busy: bool

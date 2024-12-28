@@ -1,9 +1,8 @@
 from typing import Optional, Literal, Dict
 import asyncio
 import io
-import os
-import uuid
 import base64
+import os
 from pathlib import Path
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -12,8 +11,12 @@ import torch
 import imageio
 
 from core.state_manage import state
-from core.models_pydantic import GenerationArg, GenerationResponse, TaskStatus, CurrentTaskResponse
-from core.tasks_manage import task_manager
+from core.models_pydantic import (
+    GenerationArg,
+    GenerationResponse,
+    TaskStatus,
+    StatusResponse
+)
 from core.files_manage import file_manager
 
 # Trellis pipeline + utils
@@ -22,40 +25,57 @@ from trellis.utils import render_utils, postprocessing_utils
 
 router = APIRouter()
 
-current_task_id = None
-
-# Global lock to enforce only one generation at a time
+# A single lock to ensure only one generation at a time
 generation_lock = asyncio.Lock()
-
 def is_generation_in_progress() -> bool:
     return generation_lock.locked()
 
-# -------------
-# Helper: Cleanup files
-# -------------
-async def cleanup_task_files(task_id: str, keep_videos: bool = False, keep_model: bool = False):
-    """Clean up temporary files for a task."""
-    try:
-        temp_files = ["input.png"]
-        if not keep_videos:
-            temp_files.extend([
-                "preview_gaussian.mp4",
-                "preview_mesh.mp4",
-                "preview_radiance.mp4"
-            ])
-        if not keep_model:
-            temp_files.append("model.glb")
-            
-        for file_name in temp_files:
-            file_path = file_manager.get_temp_path(task_id, file_name)
-            if file_path.exists():
-                os.remove(file_path)
-    except Exception as e:
-        print(f"Error cleaning up task files: {e}")
 
-# -------------
-# Validation
-# -------------
+# A single dictionary holding "current generation" metadata
+current_generation = {
+    "status": TaskStatus.FAILED, # default
+    "progress": 0,
+    "message": "",
+    "outputs": None,       # pipeline outputs if we did partial gen.
+    "preview_urls": None,  # dict of preview paths if relevant.
+    "model_url": None      # final model path if relevant.
+}
+
+
+# Helper to reset the "current_generation" dictionary
+# (useful to start fresh each time we begin generating)
+def reset_current_generation():
+    current_generation["status"] = TaskStatus.PROCESSING
+    current_generation["progress"] = 0
+    current_generation["message"] = ""
+    current_generation["outputs"] = None
+    current_generation["preview_urls"] = None
+    current_generation["model_url"] = None
+
+
+# Helper to update the "current_generation" dictionary
+def update_current_generation(
+    status: Optional[TaskStatus] = None,
+    progress: Optional[int] = None,
+    message: Optional[str] = None,
+    outputs=None
+):
+    if status is not None:
+        current_generation["status"] = status
+    if progress is not None:
+        current_generation["progress"] = progress
+    if message is not None:
+        current_generation["message"] = message
+    if outputs is not None:
+        current_generation["outputs"] = outputs
+
+
+# Cleanup files in "current_generation" folder
+async def cleanup_generation_files(keep_videos: bool = False, keep_model: bool = False):
+    file_manager.cleanup_generation_files(keep_videos=keep_videos, keep_model=keep_model)
+
+
+# Validate input
 def _gen_3d_validate_params(file, image_base64, arg: GenerationArg):
     """Validate incoming parameters before generation."""
     if file is None and not image_base64:
@@ -75,28 +95,31 @@ def _gen_3d_validate_params(file, image_base64, arg: GenerationArg):
         raise HTTPException(status_code=400, detail="mesh_simplify_ratio must be between 0 and 1")
     if arg.output_format not in ["glb", "gltf"]:
         raise HTTPException(status_code=400, detail="Unsupported output format")
-    
+
+
 
 async def _gen_3d_get_image(file: Optional[UploadFile], image_base64: Optional[str]) -> Image.Image:
     if image_base64:
-        try:# Remove potential data URL prefix:
-            if 'base64,' in image_base64:
-                image_base64 = image_base64.split('base64,')[1]
+        try:
+            # Remove potential data URL prefix:
+            if "base64," in image_base64:
+                image_base64 = image_base64.split("base64,")[1]
             image_data = base64.b64decode(image_base64)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid base64 data: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid base64 data: {str(e)}"
+            )
     else:
         # Handle file upload:
         image_data = await file.read()
-    # Process and validate the image data:
     return Image.open(io.BytesIO(image_data))
 
 
-# -------------
-# Worker-like Functions (but run in-thread, to avoid serialization issues between them)
-# -------------
+
+# Pipeline Worker-like functions
 async def _run_pipeline_generate_3d(image_path: Path, arg: GenerationArg):
-    """Runs the pipeline in a thread, returns the pipeline's outputs (in-memory)."""
+    """Runs the pipeline in a thread, returns pipeline outputs (in-memory)."""
     def worker():
         pipeline = state.pipeline
         image = Image.open(image_path)
@@ -119,50 +142,51 @@ async def _run_pipeline_generate_3d(image_path: Path, arg: GenerationArg):
     return outputs
 
 
-async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_fps: int, task_id: str):
-    """Given pipeline outputs, generate previews (videos) in a thread."""
+async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_fps: int):
+    """Generate the preview videos in a thread, saves them to disk."""
     def worker():
         videos = {
-            'gaussian': render_utils.render_video(
-                outputs['gaussian'][0],
+            "gaussian": render_utils.render_video(
+                outputs["gaussian"][0],
                 resolution=256,
                 num_frames=preview_frames
-            )['color'],
-            'mesh': render_utils.render_video(
-                outputs['mesh'][0],
+            )["color"],
+            "mesh": render_utils.render_video(
+                outputs["mesh"][0],
                 resolution=256,
                 num_frames=preview_frames
-            )['normal'],
-            'radiance': render_utils.render_video(
-                outputs['radiance_field'][0],
+            )["normal"],
+            "radiance": render_utils.render_video(
+                outputs["radiance_field"][0],
                 resolution=256,
                 num_frames=preview_frames
-            )['color']
+            )["color"]
         }
         for name, video in videos.items():
-            preview_path = file_manager.get_temp_path(task_id, f"preview_{name}.mp4")
+            preview_path = file_manager.get_temp_path(f"preview_{name}.mp4")
             imageio.mimsave(str(preview_path), video, fps=preview_fps)
 
     await asyncio.to_thread(worker)
 
 
-async def _run_pipeline_generate_glb(outputs, mesh_simplify_ratio: float, texture_size: int, task_id: str):
-    """Given pipeline outputs, generate the final GLB model in a thread."""
+async def _run_pipeline_generate_glb(outputs, mesh_simplify_ratio: float, texture_size: int):
+    """Generate the final GLB model in a thread."""
     def worker():
         glb = postprocessing_utils.to_glb(
-            outputs['gaussian'][0],
-            outputs['mesh'][0],
+            outputs["gaussian"][0],
+            outputs["mesh"][0],
             simplify=mesh_simplify_ratio,
             texture_size=texture_size,
         )
-        model_path = file_manager.get_temp_path(task_id, "model.glb")
+        model_path = file_manager.get_temp_path("model.glb")
         glb.export(str(model_path))
 
     await asyncio.to_thread(worker)
 
-# -------------
+# --------------------------------------------------
 # Routes
-# -------------
+# --------------------------------------------------
+
 @router.get("/")
 async def root():
     """Root endpoint to check server status."""
@@ -174,13 +198,17 @@ async def root():
     }
 
 
-@router.get("/current_task_id", response_model=CurrentTaskResponse)
-async def get_current_task_id():
+@router.get("/status", response_model=StatusResponse)
+async def get_status():
     """
-    Retrieve the ID of the most recent generation, if any.
-    This will allow you to query the progress while the generation still hasn't returned.
+    Get status of the single current/last generation.
     """
-    return CurrentTaskResponse(current_task_id=current_task_id)
+    return StatusResponse(
+        status=current_generation["status"],
+        progress=current_generation["progress"],
+        message=current_generation["message"],
+        busy=is_generation_in_progress(),
+    )
 
 
 @router.post("/generate_no_preview", response_model=GenerationResponse)
@@ -190,57 +218,52 @@ async def generate_no_preview(
     arg: GenerationArg = GenerationArg(),
 ):
     """
-    Generate 3D model directly (no preview).
+    Generate a 3D model directly (no preview).
     """
     # Acquire the lock (non-blocking)
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=503, detail="Server is busy with another generation task")
-    
-    task_id = str(uuid.uuid4())
-    task_manager.create_task(task_id)
-
-    global current_task_id
-    current_task_id = task_id
-
+        raise HTTPException(
+            status_code=503,
+            detail="Server is busy with another generation"
+        )
+    # We have the lock => let's reset the "current_generation"
+    reset_current_generation()
     try:
-        # Validate
         _gen_3d_validate_params(file, image_base64, arg)
 
-        # Get the image
+        # Save input image
         image = await _gen_3d_get_image(file, image_base64)
-        temp_image_path = file_manager.get_temp_path(task_id, "input.png")
-        temp_image_path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(temp_image_path)
+        input_image_path = file_manager.get_temp_path("input.png")
+        input_image_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(input_image_path)
 
-        # Start 3D generation
-        task_manager.update_task(task_id, 20, "Generating 3D structure...")
-        outputs = await _run_pipeline_generate_3d(temp_image_path, arg)
-        task_manager.update_task(task_id, 50, "3D structure generated", outputs=outputs)
+        update_current_generation( status=TaskStatus.PROCESSING, progress=10, message="Generating 3D structure...")
+        outputs = await _run_pipeline_generate_3d(input_image_path, arg)
+        update_current_generation( progress=50, message="3D structure generated", outputs=outputs)
 
-        # Generate GLB
-        task_manager.update_task(task_id, 70, "Generating GLB file...")
-        await _run_pipeline_generate_glb(outputs, arg.mesh_simplify_ratio, arg.texture_size, task_id)
+        # Generate final GLB
+        update_current_generation( progress=70, message="Generating GLB file..." )
+        await _run_pipeline_generate_glb(outputs, arg.mesh_simplify_ratio, arg.texture_size)
 
         # Done
-        task_manager.update_task(task_id, 100, "Generation complete", status=TaskStatus.COMPLETE)
-        # Clean up everything except the final model
-        await cleanup_task_files(task_id, keep_model=True)
+        update_current_generation( status=TaskStatus.COMPLETE, progress=100, message="Generation complete")
+
+        # Clean up intermediate files, keep final model
+        await cleanup_generation_files(keep_model=True)
 
         return GenerationResponse(
-            task_id=task_id,
             status=TaskStatus.COMPLETE,
             progress=100,
             message="Generation complete",
-            model_url=f"/download/model/{task_id}"
+            model_url="/download/model"  # single endpoint
         )
     except Exception as e:
-        task_manager.update_task(task_id, 0, str(e), status=TaskStatus.FAILED)
-        await cleanup_task_files(task_id)
+        update_current_generation( status=TaskStatus.FAILED, progress=0, message=str(e))
+        await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        current_task_id = None
         generation_lock.release()
 
 
@@ -253,166 +276,134 @@ async def generate_preview(
     """
     Generate partial 3D structure + Previews, let user resume with /resume_from_preview
     """
-    # Acquire the lock (non-blocking)
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=503, detail="Server is busy with another generation task")
-    
-    task_id = str(uuid.uuid4())
-    task_manager.create_task(task_id)
+        raise HTTPException(status_code=503, detail="Server is busy with another generation" )
 
-    global current_task_id 
-    current_task_id = task_id
+    reset_current_generation()
 
     try:
-        # Validate
         _gen_3d_validate_params(file, image_base64, arg)
 
-        # Get the image
+        # Save input image
         image = await _gen_3d_get_image(file, image_base64)
-        temp_image_path = file_manager.get_temp_path(task_id, "input.png")
-        temp_image_path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(temp_image_path)
+        input_image_path = file_manager.get_temp_path("input.png")
+        input_image_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(input_image_path)
 
-        # Start 3D generation
-        task_manager.update_task(task_id, 20, "Generating 3D structure...")
-        outputs = await _run_pipeline_generate_3d(temp_image_path, arg)
-        task_manager.update_task(task_id, 50, "3D structure generated", outputs=outputs)
+        update_current_generation(status=TaskStatus.PROCESSING, progress=20, message="Generating 3D structure...")
+        outputs = await _run_pipeline_generate_3d(input_image_path, arg)
+        update_current_generation(progress=50, message="3D structure generated", outputs=outputs)
 
         # Generate Previews
-        task_manager.update_task(task_id, 60, "Generating previews...")
-        await _run_pipeline_generate_previews(outputs, arg.preview_frames, arg.preview_fps, task_id)
+        update_current_generation( progress=60, message="Generating previews..." )
+        await _run_pipeline_generate_previews(outputs, arg.preview_frames, arg.preview_fps)
 
+        # Set up preview URLs
         preview_urls = {
-            "gaussian": f"/download/preview/gaussian/{task_id}",
-            "mesh": f"/download/preview/mesh/{task_id}",
-            "radiance": f"/download/preview/radiance/{task_id}",
+            "gaussian": "/download/preview/gaussian",
+            "mesh": "/download/preview/mesh",
+            "radiance": "/download/preview/radiance",
         }
+        update_current_generation(status=TaskStatus.PREVIEW_READY, progress=100, message="Preview generation complete")
+        current_generation["preview_urls"] = preview_urls
 
-        task_manager.update_task(
-            task_id,
-            100,
-            "Preview generation complete",
-            status=TaskStatus.PREVIEW_READY,
-        )
-
-        # Keep the outputs in memory for resume
-        await cleanup_task_files(task_id, keep_videos=True)
+        # Clean up everything except the preview videos
+        await cleanup_generation_files(keep_videos=True)
 
         return GenerationResponse(
-            task_id=task_id,
             status=TaskStatus.PREVIEW_READY,
             progress=100,
             message="Preview generation complete",
             preview_urls=preview_urls
         )
-
     except Exception as e:
-        task_manager.update_task(task_id, 0, str(e), status=TaskStatus.FAILED)
-        await cleanup_task_files(task_id)
+        update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
+        await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         generation_lock.release()
-        current_task_id = None
 
 
-@router.post("/resume_from_preview/{task_id}", response_model=GenerationResponse)
+@router.post("/resume_from_preview", response_model=GenerationResponse)
 async def resume_from_preview(
-    task_id: str,
     mesh_simplify_ratio: float = Query(0.95, gt=0, le=1),
     texture_size: int = Query(1024, gt=0, le=4096),
 ):
     """
-    Resume from a PREVIEW_READY task, generate final GLB.
+    Resume from a PREVIEW_READY state, generate final GLB.
     """
-    if generation_lock.locked():
-        raise HTTPException(status_code=503, detail="Server is busy with another generation task")
-
-    try:
+    if is_generation_in_progress():
+        raise HTTPException(
+            status_code=503,
+            detail="Server is busy with another generation"
+        )
+    
+    try:# Acquire lock right away
         generation_lock.acquire_nowait()
     except:
-        raise HTTPException(status_code=503, detail="Server is busy with another generation task")
+        raise HTTPException(status_code=503, detail="Server is busy with another generation")
 
     try:
-        task = task_manager.get_task(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
-
-        if task.status != TaskStatus.PREVIEW_READY:
+        if current_generation["status"] != TaskStatus.PREVIEW_READY:
             raise HTTPException(
                 status_code=400,
-                detail="Task must be in preview_ready state"
+                detail="Current generation must be in preview_ready state to resume"
             )
-        outputs = task.outputs
+        outputs = current_generation["outputs"]
         if not outputs:
-            raise HTTPException(status_code=400, detail="No pipeline outputs found in memory for this task")
-        
-        global current_task_id
-        current_task_id = task_id
+            raise HTTPException(
+                status_code=400,
+                detail="No pipeline outputs found in memory"
+            )
+        update_current_generation( status=TaskStatus.PROCESSING, progress=70, message="Generating final GLB...")
+        await _run_pipeline_generate_glb(outputs, mesh_simplify_ratio, texture_size)
 
-        # Generate final GLB
-        task_manager.update_task(task_id, 70, "Generating GLB file...")
-        await _run_pipeline_generate_glb(outputs, mesh_simplify_ratio, texture_size, task_id)
-
-        task_manager.update_task(task_id, 100, "Generation complete", status=TaskStatus.COMPLETE)
-        await cleanup_task_files(task_id, keep_model=True)
+        update_current_generation( status=TaskStatus.COMPLETE, progress=100, message="Generation complete")
+        await cleanup_generation_files(keep_model=True)# Cleanup everything except final model
 
         return GenerationResponse(
-            task_id=task_id,
             status=TaskStatus.COMPLETE,
             progress=100,
             message="Generation complete",
-            model_url=f"/download/model/{task_id}"
+            model_url="/download/model"
         )
     except Exception as e:
-        task_manager.update_task(task_id, 0, str(e), status=TaskStatus.FAILED)
-        await cleanup_task_files(task_id)
+        update_current_generation(
+            status=TaskStatus.FAILED,
+            progress=0,
+            message=str(e)
+        )
+        await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         generation_lock.release()
-        current_task_id = None
 
 
-@router.get("/status/{task_id}")
-async def get_status(task_id: str):
-    """Get status of a generation task"""
-    task = task_manager.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {
-        "task_id": task.id,
-        "status": task.status,
-        "progress": task.progress,
-        "message": task.message,
-        "busy": is_generation_in_progress(),
-    }
-
-
-@router.get("/download/preview/{type}/{task_id}")
+@router.get("/download/preview/{type}")
 async def download_preview(
-    type: Literal["gaussian", "mesh", "radiance"],
-    task_id: str
+    type: Literal["gaussian", "mesh", "radiance"]
 ):
-    """Download a preview video for a given task."""
-    preview_path = file_manager.get_temp_path(task_id, f"preview_{type}.mp4")
+    """Download the preview video for the current generation."""
+    preview_path = file_manager.get_temp_path(f"preview_{type}.mp4")
     if not preview_path.exists():
         raise HTTPException(status_code=404, detail="Preview not found")
     return FileResponse(
         str(preview_path),
         media_type="video/mp4",
-        filename=f"preview_{type}_{task_id}.mp4"
+        filename=f"preview_{type}.mp4"
     )
 
 
-@router.get("/download/model/{task_id}")
-async def download_model(task_id: str):
-    """Download final 3D model for a specific task (GLB)."""
-    model_path = file_manager.get_temp_path(task_id, "model.glb")
+@router.get("/download/model")
+async def download_model():
+    """Download final 3D model (GLB)."""
+    model_path = file_manager.get_temp_path("model.glb")
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="Model not found")
     return FileResponse(
         str(model_path),
         media_type="model/gltf-binary",
-        filename=f"model_{task_id}.glb"
+        filename="model.glb"
     )

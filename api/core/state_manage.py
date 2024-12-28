@@ -9,7 +9,6 @@ sys.path.append(os.getcwd() + "/../")
 import torch
 from trellis.pipelines import TrellisImageTo3DPipeline
 
-
 class TrellisState:
     def __init__(self):
         self.pipeline: Optional[TrellisImageTo3DPipeline] = None
@@ -17,17 +16,17 @@ class TrellisState:
         self.temp_dir.mkdir(exist_ok=True)
 
     def initialize_pipeline(self):
-        """Load the pipeline once. We'll do it on the main process (no pickling issues)."""
+        """Load the pipeline once. We'll do it on the main process."""
         if self.pipeline is None:
-            # Load your model from HuggingFace or local
             self.pipeline = TrellisImageTo3DPipeline.from_pretrained("JeffreyXiang/TRELLIS-image-large")
             self.pipeline.cuda()
         return self.pipeline
 
     def cleanup(self):
-        if self.temp_dir.exists():
+        if self.temp_dir.exists():# nuke everything on shutdown:
             import shutil
             shutil.rmtree(self.temp_dir)
 
 # A global state instance
+# We load the pipeline once, inside the state.pipeline, and reuse it for different tasks.
 state = TrellisState()
