@@ -344,7 +344,7 @@ async def resume_from_preview(
         )
     
     try:# Acquire lock right away
-        generation_lock.acquire_nowait()
+        await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except:
         raise HTTPException(status_code=503, detail="Server is busy with another generation")
 
