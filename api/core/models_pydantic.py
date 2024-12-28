@@ -4,10 +4,10 @@ from pydantic import BaseModel, Field
 
 
 class TaskStatus(str, Enum):
-    PROCESSING = "processing"
-    PREVIEW_READY = "preview_ready"
-    COMPLETE = "complete"
-    FAILED = "failed"
+    PROCESSING = "PROCESSING"
+    PREVIEW_READY = "PREVIEW_READY"
+    COMPLETE = "COMPLETE"
+    FAILED = "FAILED"
 
 
 class GenerationArg(BaseModel):

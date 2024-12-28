@@ -30,6 +30,7 @@ generation_lock = asyncio.Lock()
 def is_generation_in_progress() -> bool:
     return generation_lock.locked()
 
+print(imageio.help('ffmpeg'))
 
 # A single dictionary holding "current generation" metadata
 current_generation = {
@@ -164,7 +165,9 @@ async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_
         }
         for name, video in videos.items():
             preview_path = file_manager.get_temp_path(f"preview_{name}.mp4")
-            imageio.mimsave(str(preview_path), video, fps=preview_fps)
+            #use the video settings that unity3D can work with:
+            imageio.mimsave(str(preview_path),  video,  fps=preview_fps,  codec="libx264",  format="mp4", 
+                            pixelformat="yuv420p",  ffmpeg_params=["-profile:v", "baseline", "-level", "3.0"])
 
     await asyncio.to_thread(worker)
 
