@@ -1,19 +1,13 @@
 from pathlib import Path
-import time
-from datetime import datetime, timedelta
+from .state_manage import state
 
 class FileManager:
-    def __init__(self, temp_dir: Path, max_age: timedelta = timedelta(hours=1)):
-        self.temp_dir = temp_dir
-        self.max_age = max_age
+    def __init__(self):
+        self.base_path = state.temp_dir  # "temp" folder
 
     def get_temp_path(self, task_id: str, filename: str) -> Path:
-        return self.temp_dir / f"{task_id}_{filename}"
+        task_dir = self.base_path / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        return task_dir / filename
 
-    def cleanup_old_files(self):
-        cutoff = time.time() - self.max_age.total_seconds()
-        for file in self.temp_dir.iterdir():
-            if file.stat().st_mtime < cutoff:
-                file.unlink()
-
-file_manager = FileManager(Path("temp"))
+file_manager = FileManager()
