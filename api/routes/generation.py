@@ -1,4 +1,4 @@
-from typing import Optional, Literal, Dict
+from typing import Optional, Literal, List, Union
 import asyncio
 import io
 import base64
@@ -77,10 +77,10 @@ async def cleanup_generation_files(keep_videos: bool = False, keep_model: bool =
 
 
 # Validate input
-def _gen_3d_validate_params(file, image_base64, arg: GenerationArg):
+def _gen_3d_validate_params(file_or_files, b64_or_b64list, arg: GenerationArg):
     """Validate incoming parameters before generation."""
-    if file is None and not image_base64:
-        raise HTTPException(status_code=400, detail="Either file or base64 image data must be provided")
+    if (not file_or_files or len(file_or_files) == 0) and (not b64_or_b64list or len(b64_or_b64list) == 0):
+        raise HTTPException(400, "No input images provided")
     # Range checks:
     if not (0 < arg.ss_guidance_strength <= 10):
         raise HTTPException(status_code=400, detail="SS guidance strength must be above 0 and <= 10")
@@ -102,45 +102,89 @@ def _gen_3d_validate_params(file, image_base64, arg: GenerationArg):
 async def _gen_3d_get_image(file: Optional[UploadFile], image_base64: Optional[str]) -> Image.Image:
     if image_base64:
         try:
-            # Remove potential data URL prefix:
+            # base64 branch
             if "base64," in image_base64:
                 image_base64 = image_base64.split("base64,")[1]
-            image_data = base64.b64decode(image_base64)
+            data = base64.b64decode(image_base64)
+            pil_image = Image.open(io.BytesIO(data)).convert("RGBA")
         except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid base64 data: {str(e)}"
-            )
+            raise HTTPException(status_code=400, detail=f"Invalid base64 data: {str(e)}")
     else:
-        # Handle file upload:
-        image_data = await file.read()
-    return Image.open(io.BytesIO(image_data))
+        try:
+            content = await file.read()
+            pil_image = Image.open(io.BytesIO(content)).convert("RGBA")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"get_image - issue opening the image file: {str(e)}")
+    return pil_image
 
 
 
-# Pipeline Worker-like functions
-async def _run_pipeline_generate_3d(image_path: Path, arg: GenerationArg):
-    """Runs the pipeline in a thread, returns pipeline outputs (in-memory)."""
+# Reads multiple images from either UploadFile objects or base64 strings,
+# and returns a list of PIL.Image.
+async def _load_images_into_list( files: Optional[List[UploadFile]] = None,
+                                  images_base64: Optional[List[str]] = None) -> List[Image.Image]:
+    all_images = []
+    files = files or []
+    images_base64 = images_base64 or []
+    # 1) Base64-encoded:
+    for b64_str in images_base64:
+        if "base64," in b64_str:
+            b64_str = b64_str.split("base64,")[1]
+        img = await _gen_3d_get_image(file=None, image_base64=b64_str)
+        all_images.append(img)
+    # 2) Files:
+    for f in files:
+        img = await _gen_3d_get_image(file=f, image_base64=None)
+        all_images.append(img)
+
+    if not all_images:
+        raise HTTPException(status_code=400, detail="No images provided (files or base64).")
+
+    return all_images
+
+
+
+# If `pil_images` is a single PIL.Image, calls pipeline.run(...).
+# If `pil_images` is a list of multiple PIL.Images, calls pipeline.run_multi_image(...).
+# Returns the pipeline outputs dictionary.
+async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.Image]],  arg):
     def worker():
+        sparse_structure_sampler_params={
+            "steps": arg.ss_sampling_steps,
+            "cfg_strength": arg.ss_guidance_strength,
+        }
+        slat_sampler_params={
+            "steps": arg.slat_sampling_steps,
+            "cfg_strength": arg.slat_guidance_strength,
+        }
         pipeline = state.pipeline
-        image = Image.open(image_path)
-        outputs = pipeline.run(
-            image,
-            seed=arg.seed,
-            sparse_structure_sampler_params={
-                "steps": arg.ss_sampling_steps,
-                "cfg_strength": arg.ss_guidance_strength,
-            },
-            slat_sampler_params={
-                "steps": arg.slat_sampling_steps,
-                "cfg_strength": arg.slat_guidance_strength,
-            },
-        )
+        # Decide single-image vs multi-image
+        if isinstance(pil_images, list):
+            if len(pil_images) > 1:# Multi-image scenario:
+                outputs = pipeline.run_multi_image(
+                    pil_images,
+                    seed=arg.seed,
+                    sparse_structure_sampler_params = sparse_structure_sampler_params,
+                    slat_sampler_params = slat_sampler_params )
+            else: # Single PIL image in a list
+                outputs = pipeline.run(
+                    pil_images[0],
+                    seed=arg.seed,
+                    sparse_structure_sampler_params = sparse_structure_sampler_params,
+                    slat_sampler_params = slat_sampler_params )
+        else:# It's truly a single PIL.Image:
+            outputs = pipeline.run(
+                pil_images,
+                seed=arg.seed,
+                sparse_structure_sampler_params = sparse_structure_sampler_params,
+                slat_sampler_params = slat_sampler_params )
         torch.cuda.empty_cache()
         return outputs
-
+        # end worker()
     outputs = await asyncio.to_thread(worker)
     return outputs
+
+
 
 
 async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_fps: int):
@@ -227,23 +271,17 @@ async def generate_no_preview(
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
-        raise HTTPException(
-            status_code=503,
-            detail="Server is busy with another generation"
-        )
+        raise HTTPException( status_code=503, detail="Server is busy with another generation")
     # We have the lock => let's reset the "current_generation"
     reset_current_generation()
     try:
         _gen_3d_validate_params(file, image_base64, arg)
 
-        # Save input image
+        #construct an image
         image = await _gen_3d_get_image(file, image_base64)
-        input_image_path = file_manager.get_temp_path("input.png")
-        input_image_path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(input_image_path)
 
         update_current_generation( status=TaskStatus.PROCESSING, progress=10, message="Generating 3D structure...")
-        outputs = await _run_pipeline_generate_3d(input_image_path, arg)
+        outputs = await _run_pipeline_generate_3d(image, arg)
         update_current_generation( progress=50, message="3D structure generated", outputs=outputs)
 
         # Generate final GLB
@@ -289,14 +327,11 @@ async def generate_preview(
     try:
         _gen_3d_validate_params(file, image_base64, arg)
 
-        # Save input image
+        #construct an image
         image = await _gen_3d_get_image(file, image_base64)
-        input_image_path = file_manager.get_temp_path("input.png")
-        input_image_path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(input_image_path)
 
         update_current_generation(status=TaskStatus.PROCESSING, progress=20, message="Generating 3D structure...")
-        outputs = await _run_pipeline_generate_3d(input_image_path, arg)
+        outputs = await _run_pipeline_generate_3d(image, arg)
         update_current_generation(progress=50, message="3D structure generated", outputs=outputs)
 
         # Generate Previews
@@ -329,6 +364,157 @@ async def generate_preview(
         generation_lock.release()
 
 
+@router.post("/generate_multi_no_preview", response_model=GenerationResponse)
+async def generate_multi_no_preview(
+    file_list: Optional[List[UploadFile]] = File(None),
+    image_list_base64: Optional[List[str]] = Form(None),
+    arg: GenerationArg = GenerationArg(),
+):
+    """
+    Generate a 3D model using multiple images, directly (no preview).
+    The pipeline will receive [img1, img2, ...] as input.
+    """
+    try:
+        await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
+    except asyncio.TimeoutError:
+        raise HTTPException( status_code=503, detail="Server is busy with another generation")
+    
+    reset_current_generation()
+
+    try:
+        _gen_3d_validate_params(file_list, image_list_base64, arg)
+        # construct images:
+        images = await _load_images_into_list(file_list, image_list_base64)
+
+        update_current_generation(status=TaskStatus.PROCESSING, progress=10, message="Generating 3D structure...")
+        outputs = await _run_pipeline_generate_3d(images, arg)
+        update_current_generation(progress=50, message="3D structure generated", outputs=outputs)
+
+        # 2) Generate final GLB
+        update_current_generation(progress=70, message="Generating GLB file...")
+        def worker_glb():
+            glb = postprocessing_utils.to_glb(
+                outputs["gaussian"][0],
+                outputs["mesh"][0],
+                simplify=arg.mesh_simplify_ratio,
+                texture_size=arg.texture_size,
+            )
+            model_path = file_manager.get_temp_path("model.glb")
+            glb.export(str(model_path))
+
+        await asyncio.to_thread(worker_glb)
+
+        # Done
+        update_current_generation(status=TaskStatus.COMPLETE, progress=100, message="Generation complete")
+
+        # Clean up intermediate files, keep final model
+        await cleanup_generation_files(keep_model=True)
+
+        return GenerationResponse(
+            status=TaskStatus.COMPLETE,
+            progress=100,
+            message="Generation complete",
+            model_url="/download/model"  # single endpoint
+        )
+    except Exception as e:
+        update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
+        await cleanup_generation_files()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        generation_lock.release()
+
+
+
+@router.post("/generate_multi_preview", response_model=GenerationResponse)
+async def generate_multi_preview(
+    file_list: Optional[List[UploadFile]] = File(None),
+    image_list_base64: Optional[List[str]] = Form(None),
+    arg: GenerationArg = GenerationArg(),
+):
+    """
+    Generate partial 3D structure + Previews using multiple images.
+    Let user resume with /resume_from_preview
+    """
+    try:
+        await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="Server is busy with another generation")
+
+    reset_current_generation()
+
+    try:
+        if arg.output_format not in ["glb", "gltf"]:
+            raise HTTPException(status_code=400, detail="Unsupported output format")
+        # construct images:
+        images = await _load_images_into_list(file_list, image_list_base64)
+
+        update_current_generation(status=TaskStatus.PROCESSING, progress=20, message="Generating 3D structure...")
+        outputs = await _run_pipeline_generate_3d(images, arg)
+        update_current_generation(progress=50, message="3D structure generated", outputs=outputs)
+
+        # Generate Previews (gaussian, mesh, radiance)
+        update_current_generation(progress=60, message="Generating previews...")
+
+        def worker_previews():
+            videos = {
+                "gaussian": render_utils.render_video(
+                    outputs["gaussian"][0],
+                    resolution=256,
+                    num_frames=arg.preview_frames
+                )["color"],
+                "mesh": render_utils.render_video(
+                    outputs["mesh"][0],
+                    resolution=256,
+                    num_frames=arg.preview_frames
+                )["normal"],
+                "radiance": render_utils.render_video(
+                    outputs["radiance_field"][0],
+                    resolution=256,
+                    num_frames=arg.preview_frames
+                )["color"],
+            }
+            for name, video in videos.items():
+                preview_path = file_manager.get_temp_path(f"preview_{name}.mp4")
+                imageio.mimsave(
+                    str(preview_path),
+                    video,
+                    fps=arg.preview_fps,
+                    codec="libx264",
+                    format="mp4",
+                    pixelformat="yuv420p",
+                    ffmpeg_params=["-profile:v", "baseline", "-level", "3.0"]
+                )
+        await asyncio.to_thread(worker_previews)
+
+        # Set up preview URLs
+        preview_urls = {
+            "gaussian": "/download/preview/gaussian",
+            "mesh": "/download/preview/mesh",
+            "radiance": "/download/preview/radiance",
+        }
+        update_current_generation(status=TaskStatus.PREVIEW_READY, progress=100, message="Preview generation complete")
+        current_generation["preview_urls"] = preview_urls
+
+        # Clean up everything except the preview videos
+        await cleanup_generation_files(keep_videos=True)
+
+        return GenerationResponse(
+            status=TaskStatus.PREVIEW_READY,
+            progress=100,
+            message="Preview generation complete",
+            preview_urls=preview_urls
+        )
+
+    except Exception as e:
+        update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
+        await cleanup_generation_files()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        generation_lock.release()
+
+
+# can be invoked after user generated previews and is happy with them.
+# here we'll complete the generation and will make the mesh available for a download.
 @router.post("/resume_from_preview", response_model=GenerationResponse)
 async def resume_from_preview(
     mesh_simplify_ratio: float = Query(0.95, gt=0, le=1),

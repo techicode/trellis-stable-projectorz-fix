@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'  # Using for now to avoid issues with async memory races
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'  # Using for now to avoid issues with async memory races
 
 import uvicorn
 from contextlib import asynccontextmanager
