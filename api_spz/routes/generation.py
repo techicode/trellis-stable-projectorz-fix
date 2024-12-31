@@ -31,7 +31,6 @@ router = APIRouter()
 cancel_event = asyncio.Event() # This event will be set by the endpoint /interrupt
 
 
-
 # A single lock to ensure only one generation at a time
 generation_lock = asyncio.Lock()
 def is_generation_in_progress() -> bool:
