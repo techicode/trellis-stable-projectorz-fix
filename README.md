@@ -1,3 +1,14 @@
+A One-click installer for Windows: [(Python 3.11, Cuda 11.8, Torch 2.1.2)](https://github.com/IgorAherne/trellis-stable-projectorz/releases/tag/latest)
+
+Repository for integration with the [StableProjectorz](https://stableprojectorz.com/), a free AI-texturing tool.<br>
+Our Discord server: [here](https://discord.gg/aWbnX2qan2)
+
+People confirmed it runs fine on Nvidia GPUs with 8GB vram (RTX 3070ti)
+<br><br>
+<h2>Original Trellis Repo description:</h2>
+
+
+<br><br><br>
 <img src="assets/logo.webp" width="100%" align="center">
 <h1 align="center">Structured 3D Latents<br>for Scalable and Versatile 3D Generation</h1>
 <p align="center"><a href="https://arxiv.org/abs/2412.01506"><img src='https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv&logoColor=white' alt='arXiv'></a>
@@ -18,6 +29,10 @@
 
 <!-- Updates -->
 ## ⏩ Updates
+
+**12/26/2024**
+- Release [**TRELLIS-500K**](https://github.com/microsoft/TRELLIS#-dataset) dataset and toolkits for data preparation.
+
 **12/18/2024**
 - Implementation of multi-image conditioning for TRELLIS-image model. ([#7](https://github.com/microsoft/TRELLIS/issues/7)). This is based on tuning-free algorithm without training a specialized model, so it may not give the best results for all input images.
 - Add Gaussian export in `app.py` and `example.py`. ([#40](https://github.com/microsoft/TRELLIS/issues/40))
@@ -25,8 +40,9 @@
 <!-- TODO List -->
 ## 🚧 TODO List
 - [x] Release inference code and TRELLIS-image-large model
+- [x] Release dataset and dataset toolkits
 - [ ] Release TRELLIS-text model series
-- [ ] Release training code and data
+- [ ] Release training code
 
 <!-- Installation -->
 ## 📦 Installation
@@ -191,6 +207,11 @@ Then, you can access the demo at the address shown in the terminal.
 
 ***The web demo is also available on [Hugging Face Spaces](https://huggingface.co/spaces/JeffreyXiang/TRELLIS)!***
 
+
+<!-- Dataset -->
+## 📚 Dataset
+
+We provide **TRELLIS-500K**, a large-scale dataset containing 500K 3D assets curated from [Objaverse(XL)](https://objaverse.allenai.org/), [ABO](https://amazon-berkeley-objects.s3.amazonaws.com/index.html), [3D-FUTURE](https://tianchi.aliyun.com/specials/promotion/alibaba-3d-future), [HSSD](https://huggingface.co/datasets/hssd/hssd-models), and [Toys4k](https://github.com/rehg-lab/lowshot-shapebias/tree/main/toys4k), filtered based on aesthetic scores. Please refer to the [dataset README](DATASET.md) for more details.
 
 <!-- License -->
 ## ⚖️ License
