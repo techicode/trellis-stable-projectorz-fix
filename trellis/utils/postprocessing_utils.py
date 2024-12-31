@@ -17,6 +17,7 @@ from .render_utils import render_multiview
 from ..renderers import GaussianRenderer
 from ..representations import Strivec, Gaussian, MeshExtractResult
 
+from api_spz.core.exceptions import CancelledException
 
 @torch.no_grad()
 def _fill_holes(
@@ -287,6 +288,7 @@ def bake_texture(
     mode: Literal['fast', 'opt'] = 'opt',
     lambda_tv: float = 1e-2,
     verbose: bool = False,
+    cancel_event=None,
 ):
     """
     Bake texture to a mesh from multiple observations.
@@ -319,6 +321,8 @@ def bake_texture(
         texture_weights = torch.zeros((texture_size * texture_size), dtype=torch.float32).cuda()
         rastctx = utils3d.torch.RastContext(backend='cuda')
         for observation, view, projection in tqdm(zip(observations, views, projections), total=len(observations), disable=not verbose, desc='Texture baking (fast)'):
+            if cancel_event and cancel_event.is_set(): 
+                raise CancelledException(f"Cancelled the texture baking (fast).")
             with torch.no_grad():
                 rast = utils3d.torch.rasterize_triangle_faces(
                     rastctx, vertices[None], faces, observation.shape[1], observation.shape[0], uv=uvs[None], view=view, projection=projection
@@ -349,6 +353,8 @@ def bake_texture(
         _uv = []
         _uv_dr = []
         for observation, view, projection in tqdm(zip(observations, views, projections), total=len(views), disable=not verbose, desc='Texture baking (opt): UV'):
+            if cancel_event and cancel_event.is_set(): 
+                raise CancelledException(f"Cancelled the texture baking (opt).")
             with torch.no_grad():
                 rast = utils3d.torch.rasterize_triangle_faces(
                     rastctx, vertices[None], faces, observation.shape[1], observation.shape[0], uv=uvs[None], view=view, projection=projection
@@ -385,6 +391,8 @@ def bake_texture(
                 optimizer.param_groups[0]['lr'] = cosine_anealing(optimizer, step, total_steps, 1e-2, 1e-5)
                 pbar.set_postfix({'loss': loss.item()})
                 pbar.update()
+                if cancel_event and cancel_event.is_set(): 
+                    raise CancelledException(f"Cancelled texture optimization at step {step}/{total_steps}.")
         texture = np.clip(texture[0].flip(0).detach().cpu().numpy() * 255, 0, 255).astype(np.uint8)
         mask = 1 - utils3d.torch.rasterize_triangle_faces(
             rastctx, (uvs * 2 - 1)[None], faces, texture_size, texture_size
@@ -405,6 +413,7 @@ def to_glb(
     texture_size: int = 1024,
     debug: bool = False,
     verbose: bool = True,
+    cancel_event = None,
 ) -> trimesh.Trimesh:
     """
     Convert a generated asset to a glb file.
@@ -449,7 +458,8 @@ def to_glb(
         observations, masks, extrinsics, intrinsics,
         texture_size=texture_size, mode='opt',
         lambda_tv=0.01,
-        verbose=verbose
+        verbose=verbose,
+        cancel_event=cancel_event,
     )
     texture = Image.fromarray(texture)
 

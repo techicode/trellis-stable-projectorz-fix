@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.append(os.getcwd())
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'  # Using for now to avoid issues with async memory races
 
 import uvicorn
@@ -12,6 +14,7 @@ os.environ['SPCONV_ALGO'] = 'native'    # or 'auto'
 
 from core.state_manage import state
 from routes import generation
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

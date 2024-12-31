@@ -14,6 +14,8 @@ from . import samplers
 from ..modules import sparse as sp
 from ..representations import Gaussian, Strivec, MeshExtractResult
 
+from api_spz.core.exceptions import CancelledException
+
 
 class TrellisImageTo3DPipeline(Pipeline):
     """
@@ -167,6 +169,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         cond: dict,
         num_samples: int = 1,
         sampler_params: dict = {},
+        cancel_event=None,
     ) -> torch.Tensor:
         """
         Sample sparse structures with the given conditioning.
@@ -186,7 +189,8 @@ class TrellisImageTo3DPipeline(Pipeline):
             noise,
             **cond,
             **sampler_params,
-            verbose=True
+            verbose=True,
+            cancel_event=cancel_event,
         ).samples
         
         # Decode occupancy latent
@@ -199,6 +203,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         self,
         slat: sp.SparseTensor,
         formats: List[str] = ['mesh', 'gaussian', 'radiance_field'],
+        cancel_event=None,
     ) -> dict:
         """
         Decode the structured latent.
@@ -212,10 +217,13 @@ class TrellisImageTo3DPipeline(Pipeline):
         """
         ret = {}
         if 'mesh' in formats:
+            if cancel_event and cancel_event.is_set(): raise CancelledException(f"Cancelled before mesh slat decode")
             ret['mesh'] = self.models['slat_decoder_mesh'](slat)
         if 'gaussian' in formats:
+            if cancel_event and cancel_event.is_set(): raise CancelledException(f"Cancelled before gauss slat decode")
             ret['gaussian'] = self.models['slat_decoder_gs'](slat)
         if 'radiance_field' in formats:
+            if cancel_event and cancel_event.is_set(): raise CancelledException(f"Cancelled before radiance slat decode")
             ret['radiance_field'] = self.models['slat_decoder_rf'](slat)
         return ret
     
@@ -224,6 +232,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         cond: dict,
         coords: torch.Tensor,
         sampler_params: dict = {},
+        cancel_event=None,
     ) -> sp.SparseTensor:
         """
         Sample structured latent with the given conditioning.
@@ -264,6 +273,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         slat_sampler_params: dict = {},
         formats: List[str] = ['mesh', 'gaussian', 'radiance_field'],
         preprocess_image: bool = True,
+        cancel_event=None,
     ) -> dict:
         """
         Run the pipeline.
@@ -280,8 +290,8 @@ class TrellisImageTo3DPipeline(Pipeline):
         cond = self.get_cond([image])
         torch.manual_seed(seed)
         coords = self.sample_sparse_structure(cond, num_samples, sparse_structure_sampler_params)
-        slat = self.sample_slat(cond, coords, slat_sampler_params)
-        return self.decode_slat(slat, formats)
+        slat = self.sample_slat(cond, coords, slat_sampler_params, cancel_event=cancel_event)
+        return self.decode_slat(slat, formats, cancel_event=cancel_event)
 
     @contextmanager
     def inject_sampler_multi_image(
@@ -351,6 +361,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         formats: List[str] = ['mesh', 'gaussian', 'radiance_field'],
         preprocess_image: bool = True,
         mode: Literal['stochastic', 'multidiffusion'] = 'stochastic',
+        cancel_event=None,
     ) -> dict:
         """
         Run the pipeline with multiple images as condition
@@ -373,4 +384,4 @@ class TrellisImageTo3DPipeline(Pipeline):
         slat_steps = {**self.slat_sampler_params, **slat_sampler_params}.get('steps')
         with self.inject_sampler_multi_image('slat_sampler', len(images), slat_steps, mode=mode):
             slat = self.sample_slat(cond, coords, slat_sampler_params)
-        return self.decode_slat(slat, formats)
+        return self.decode_slat(slat, formats, cancel_event=cancel_event)

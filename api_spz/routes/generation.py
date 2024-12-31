@@ -10,27 +10,33 @@ from PIL import Image
 import torch
 import imageio
 
-from core.state_manage import state
-from core.models_pydantic import (
+from api_spz.core.exceptions import CancelledException
+from api_spz.core.files_manage import file_manager
+from api_spz.core.state_manage import state
+from api_spz.core.models_pydantic import (
     GenerationArg,
     GenerationResponse,
     TaskStatus,
     StatusResponse
 )
-from core.files_manage import file_manager
 
 # Trellis pipeline + utils
 from trellis.pipelines import TrellisImageTo3DPipeline
 from trellis.utils import render_utils, postprocessing_utils
 
+
+
 router = APIRouter()
+
+cancel_event = asyncio.Event() # This event will be set by the endpoint /interrupt
+
+
 
 # A single lock to ensure only one generation at a time
 generation_lock = asyncio.Lock()
 def is_generation_in_progress() -> bool:
     return generation_lock.locked()
 
-print(imageio.help('ffmpeg'))
 
 # A single dictionary holding "current generation" metadata
 current_generation = {
@@ -46,6 +52,7 @@ current_generation = {
 # Helper to reset the "current_generation" dictionary
 # (useful to start fresh each time we begin generating)
 def reset_current_generation():
+    cancel_event.clear()
     current_generation["status"] = TaskStatus.PROCESSING
     current_generation["progress"] = 0
     current_generation["message"] = ""
@@ -165,25 +172,27 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
                     pil_images,
                     seed=arg.seed,
                     sparse_structure_sampler_params = sparse_structure_sampler_params,
-                    slat_sampler_params = slat_sampler_params )
+                    slat_sampler_params = slat_sampler_params,
+                    cancel_event=cancel_event )
             else: # Single PIL image in a list
                 outputs = pipeline.run(
                     pil_images[0],
                     seed=arg.seed,
                     sparse_structure_sampler_params = sparse_structure_sampler_params,
-                    slat_sampler_params = slat_sampler_params )
+                    slat_sampler_params = slat_sampler_params,
+                    cancel_event=cancel_event )
         else:# It's truly a single PIL.Image:
             outputs = pipeline.run(
                 pil_images,
                 seed=arg.seed,
                 sparse_structure_sampler_params = sparse_structure_sampler_params,
-                slat_sampler_params = slat_sampler_params )
+                slat_sampler_params = slat_sampler_params,
+                cancel_event=cancel_event )
         torch.cuda.empty_cache()
         return outputs
         # end worker()
     outputs = await asyncio.to_thread(worker)
     return outputs
-
 
 
 
@@ -194,17 +203,20 @@ async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_
             "gaussian": render_utils.render_video(
                 outputs["gaussian"][0],
                 resolution=256,
-                num_frames=preview_frames
+                num_frames=preview_frames,
+                cancel_event=cancel_event
             )["color"],
             "mesh": render_utils.render_video(
                 outputs["mesh"][0],
                 resolution=256,
-                num_frames=preview_frames
+                num_frames=preview_frames,
+                cancel_event=cancel_event
             )["normal"],
             "radiance": render_utils.render_video(
                 outputs["radiance_field"][0],
                 resolution=256,
-                num_frames=preview_frames
+                num_frames=preview_frames,
+                cancel_event=cancel_event
             )["color"]
         }
         for name, video in videos.items():
@@ -224,6 +236,7 @@ async def _run_pipeline_generate_glb(outputs, mesh_simplify_ratio: float, textur
             outputs["mesh"][0],
             simplify=mesh_simplify_ratio,
             texture_size=texture_size,
+            cancel_event=cancel_event
         )
         model_path = file_manager.get_temp_path("model.glb")
         glb.export(str(model_path))
@@ -234,8 +247,8 @@ async def _run_pipeline_generate_glb(outputs, mesh_simplify_ratio: float, textur
 # Routes
 # --------------------------------------------------
 
-@router.get("/")
-async def root():
+@router.get("/ping")
+async def ping():
     """Root endpoint to check server status."""
     busy = is_generation_in_progress()
     return {
@@ -300,6 +313,11 @@ async def generate_no_preview(
             message="Generation complete",
             model_url="/download/model"  # single endpoint
         )
+    except CancelledException as cex:
+        # Cancel was triggered mid-generation
+        update_current_generation( status=TaskStatus.FAILED, progress=0, message="Cancelled by user")
+        await cleanup_generation_files()
+        raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
         update_current_generation( status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
@@ -356,6 +374,11 @@ async def generate_preview(
             message="Preview generation complete",
             preview_urls=preview_urls
         )
+    except CancelledException as cex:
+        # Cancel was triggered mid-generation
+        update_current_generation( status=TaskStatus.FAILED, progress=0, message="Cancelled by user")
+        await cleanup_generation_files()
+        raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
@@ -416,6 +439,11 @@ async def generate_multi_no_preview(
             message="Generation complete",
             model_url="/download/model"  # single endpoint
         )
+    except CancelledException as cex:
+        # Cancel was triggered mid-generation
+        update_current_generation( status=TaskStatus.FAILED, progress=0, message="Cancelled by user")
+        await cleanup_generation_files()
+        raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
@@ -504,7 +532,11 @@ async def generate_multi_preview(
             message="Preview generation complete",
             preview_urls=preview_urls
         )
-
+    except CancelledException as cex:
+        # Cancel was triggered mid-generation
+        update_current_generation( status=TaskStatus.FAILED, progress=0, message="Cancelled by user")
+        await cleanup_generation_files()
+        raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
@@ -558,6 +590,11 @@ async def resume_from_preview(
             message="Generation complete",
             model_url="/download/model"
         )
+    except CancelledException as cex:
+        # Cancel was triggered mid-generation
+        update_current_generation( status=TaskStatus.FAILED, progress=0, message="Cancelled by user")
+        await cleanup_generation_files()
+        raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
         update_current_generation(
             status=TaskStatus.FAILED,
@@ -568,6 +605,17 @@ async def resume_from_preview(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         generation_lock.release()
+
+
+
+@router.post("/interrupt")
+async def interrupt_generation():
+    """Interrupt the current generation if one is in progress."""
+    if not is_generation_in_progress():
+        return {"status": "no_generation_in_progress"}
+    cancel_event.set()  # <-- Signal cancellation
+    return {"status": "interrupt_requested"}
+    
 
 
 @router.get("/download/preview/{type}")
@@ -596,3 +644,4 @@ async def download_model():
         media_type="model/gltf-binary",
         filename="model.glb"
     )
+

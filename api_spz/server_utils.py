@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 # Add trellis to Python path 
-sys.path.append(os.getcwd()+"/..")
+sys.path.append(os.getcwd())
 
 # Configure environment
 os.environ['ATTN_BACKEND'] = 'xformers' # Can be 'flash-attn' or 'xformers'

@@ -11,7 +11,7 @@ from PIL import Image
 import imageio
 
 # Add trellis to Python path 
-sys.path.append(os.getcwd()+"/..")
+sys.path.append(os.getcwd())
 
 # Configure environment
 os.environ['ATTN_BACKEND'] = 'xformers'    # Can be 'flash-attn' or 'xformers'

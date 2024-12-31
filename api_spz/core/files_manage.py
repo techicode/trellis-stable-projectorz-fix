@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from .state_manage import state
+from api_spz.core.state_manage import state
 
 class FileManager:
     def __init__(self):

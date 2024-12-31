@@ -9,6 +9,7 @@ from ..representations import Octree, Gaussian, MeshExtractResult
 from ..modules import sparse as sp
 from .random_utils import sphere_hammersley_sequence
 
+from api_spz.core.exceptions import CancelledException
 
 def yaw_pitch_r_fov_to_extrinsics_intrinsics(yaws, pitchs, rs, fovs):
     is_list = isinstance(yaws, list)
@@ -40,7 +41,7 @@ def yaw_pitch_r_fov_to_extrinsics_intrinsics(yaws, pitchs, rs, fovs):
     return extrinsics, intrinsics
 
 
-def render_frames(sample, extrinsics, intrinsics, options={}, colors_overwrite=None, verbose=True, **kwargs):
+def render_frames(sample, extrinsics, intrinsics, options={}, colors_overwrite=None, verbose=True, cancel_event=None, **kwargs):
     if isinstance(sample, Octree):
         renderer = OctreeRenderer()
         renderer.rendering_options.resolution = options.get('resolution', 512)
@@ -66,9 +67,13 @@ def render_frames(sample, extrinsics, intrinsics, options={}, colors_overwrite=N
         renderer.rendering_options.ssaa = options.get('ssaa', 4)
     else:
         raise ValueError(f'Unsupported sample type: {type(sample)}')
-    
+
     rets = {}
     for j, (extr, intr) in tqdm(enumerate(zip(extrinsics, intrinsics)), desc='Rendering', disable=not verbose):
+        
+        if cancel_event and cancel_event.is_set(): 
+            raise CancelledException(f"Cancelled at frame {j}/{len(extrinsics)}.")
+        
         if not isinstance(sample, MeshExtractResult):
             res = renderer.render(sample, extr, intr, colors_overwrite=colors_overwrite)
             if 'color' not in rets: rets['color'] = []
@@ -87,30 +92,31 @@ def render_frames(sample, extrinsics, intrinsics, options={}, colors_overwrite=N
     return rets
 
 
-def render_video(sample, resolution=512, bg_color=(0, 0, 0), num_frames=300, r=2, fov=40, **kwargs):
+def render_video(sample, resolution=512, bg_color=(0, 0, 0), num_frames=300, r=2, fov=40, cancel_event=None, **kwargs):
     yaws = torch.linspace(0, 2 * 3.1415, num_frames)
     pitch = 0.25 + 0.5 * torch.sin(torch.linspace(0, 2 * 3.1415, num_frames))
     yaws = yaws.tolist()
     pitch = pitch.tolist()
     extrinsics, intrinsics = yaw_pitch_r_fov_to_extrinsics_intrinsics(yaws, pitch, r, fov)
-    return render_frames(sample, extrinsics, intrinsics, {'resolution': resolution, 'bg_color': bg_color}, **kwargs)
+    return render_frames(sample, extrinsics, intrinsics, {'resolution': resolution, 'bg_color': bg_color}, cancel_event=cancel_event, **kwargs)
 
 
-def render_multiview(sample, resolution=512, nviews=30):
+def render_multiview(sample, resolution=512, nviews=30, cancel_event=None):
     r = 2
     fov = 40
     cams = [sphere_hammersley_sequence(i, nviews) for i in range(nviews)]
     yaws = [cam[0] for cam in cams]
     pitchs = [cam[1] for cam in cams]
     extrinsics, intrinsics = yaw_pitch_r_fov_to_extrinsics_intrinsics(yaws, pitchs, r, fov)
-    res = render_frames(sample, extrinsics, intrinsics, {'resolution': resolution, 'bg_color': (0, 0, 0)})
+    res = render_frames(sample, extrinsics, intrinsics, {'resolution': resolution, 'bg_color': (0, 0, 0)}, cancel_event=cancel_event)
     return res['color'], extrinsics, intrinsics
 
 
-def render_snapshot(samples, resolution=512, bg_color=(0, 0, 0), offset=(-16 / 180 * np.pi, 20 / 180 * np.pi), r=10, fov=8, **kwargs):
+def render_snapshot(samples, resolution=512, bg_color=(0, 0, 0), offset=(-16 / 180 * np.pi, 20 / 180 * np.pi),
+                     r=10, fov=8, cancel_event=None, **kwargs):
     yaw = [0, np.pi/2, np.pi, 3*np.pi/2]
     yaw_offset = offset[0]
     yaw = [y + yaw_offset for y in yaw]
     pitch = [offset[1] for _ in range(4)]
     extrinsics, intrinsics = yaw_pitch_r_fov_to_extrinsics_intrinsics(yaw, pitch, r, fov)
-    return render_frames(samples, extrinsics, intrinsics, {'resolution': resolution, 'bg_color': bg_color}, **kwargs)
+    return render_frames(samples, extrinsics, intrinsics, {'resolution': resolution, 'bg_color': bg_color}, cancel_event=cancel_event, **kwargs)

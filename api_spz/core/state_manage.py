@@ -3,9 +3,6 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Add trellis to Python path (adjust if your trellis code is located elsewhere)
-sys.path.append(os.getcwd() + "/../")
-
 import torch
 from trellis.pipelines import TrellisImageTo3DPipeline
 

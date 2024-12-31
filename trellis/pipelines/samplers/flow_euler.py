@@ -7,6 +7,7 @@ from .base import Sampler
 from .classifier_free_guidance_mixin import ClassifierFreeGuidanceSamplerMixin
 from .guidance_interval_mixin import GuidanceIntervalSamplerMixin
 
+from api_spz.core.exceptions import CancelledException
 
 class FlowEulerSampler(Sampler):
     """
@@ -83,6 +84,7 @@ class FlowEulerSampler(Sampler):
         steps: int = 50,
         rescale_t: float = 1.0,
         verbose: bool = True,
+        cancel_event=None,
         **kwargs
     ):
         """
@@ -109,6 +111,8 @@ class FlowEulerSampler(Sampler):
         t_pairs = list((t_seq[i], t_seq[i + 1]) for i in range(steps))
         ret = edict({"samples": None, "pred_x_t": [], "pred_x_0": []})
         for t, t_prev in tqdm(t_pairs, desc="Sampling", disable=not verbose):
+            if cancel_event and cancel_event.is_set(): 
+                raise CancelledException(f"Cancelled the Sampling.")
             out = self.sample_once(model, sample, t, t_prev, cond, **kwargs)
             sample = out.pred_x_prev
             ret.pred_x_t.append(out.pred_x_prev)
@@ -173,6 +177,7 @@ class FlowEulerGuidanceIntervalSampler(GuidanceIntervalSamplerMixin, FlowEulerSa
         cfg_strength: float = 3.0,
         cfg_interval: Tuple[float, float] = (0.0, 1.0),
         verbose: bool = True,
+        cancel_event=None,
         **kwargs
     ):
         """
@@ -196,4 +201,5 @@ class FlowEulerGuidanceIntervalSampler(GuidanceIntervalSamplerMixin, FlowEulerSa
             - 'pred_x_t': a list of prediction of x_t.
             - 'pred_x_0': a list of prediction of x_0.
         """
-        return super().sample(model, noise, cond, steps, rescale_t, verbose, neg_cond=neg_cond, cfg_strength=cfg_strength, cfg_interval=cfg_interval, **kwargs)
+        return super().sample(model, noise, cond, steps, rescale_t, verbose, neg_cond=neg_cond, cfg_strength=cfg_strength, 
+                              cfg_interval=cfg_interval, cancel_event=cancel_event, **kwargs)

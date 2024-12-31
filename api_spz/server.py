@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Add trellis to Python path 
-sys.path.append(os.getcwd()+"/..")
+sys.path.append(os.getcwd())
 
 
 from trellis.pipelines import TrellisImageTo3DPipeline
