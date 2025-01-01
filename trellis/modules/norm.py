@@ -4,7 +4,7 @@ import torch.nn as nn
 
 class LayerNorm32(nn.LayerNorm):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return super().forward(x.half()).type(x.dtype)
+        return super().forward(x).type(x.dtype)# not doing x.float(), to support pipeline's half-precision
     
 
 class GroupNorm32(nn.GroupNorm):
@@ -12,7 +12,7 @@ class GroupNorm32(nn.GroupNorm):
     A GroupNorm layer that converts to float16 before the forward pass.
     """
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return super().forward(x.half()).type(x.dtype)
+        return super().forward(x).type(x.dtype) # not doing x.float(), to support pipeline's half-precision
     
     
 class ChannelLayerNorm32(LayerNorm32):

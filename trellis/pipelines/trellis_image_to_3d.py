@@ -141,11 +141,14 @@ class TrellisImageTo3DPipeline(Pipeline):
             assert all(isinstance(i, Image.Image) for i in image), "Image list should be list of PIL images"
             image = [i.resize((518, 518), Image.LANCZOS) for i in image]
             image = [np.array(i.convert('RGB')).astype(np.float32) / 255 for i in image]
-            image = [torch.from_numpy(i).permute(2, 0, 1).half() for i in image]
-            image = torch.stack(image).to(self.device)
+            image = [torch.from_numpy(i).permute(2, 0, 1) for i in image] 
+            #deduce the dtype, so that it works with the half-precision, etc:
+            desired_dtype = self.models['image_cond_model'].patch_embed.proj.weight.dtype
+            image = torch.stack(image).to(desired_dtype).to(self.device)
         else:
             raise ValueError(f"Unsupported type of image: {type(image)}")
         
+
         image = self.image_cond_model_transform(image).to(self.device)
         features = self.models['image_cond_model'](image, is_training=True)['x_prenorm']
         patchtokens = F.layer_norm(features, features.shape[-1:])
@@ -186,7 +189,8 @@ class TrellisImageTo3DPipeline(Pipeline):
         # Sample occupancy latent
         flow_model = self.models['sparse_structure_flow_model']
         reso = flow_model.resolution
-        noise = torch.randn(num_samples, flow_model.in_channels, reso, reso, reso, dtype=torch.float16).to(self.device)
+        desired_dtype = next(flow_model.parameters()).dtype #figure out dtype, so that it works with half-precision etc.
+        noise = torch.randn(num_samples, flow_model.in_channels, reso, reso, reso, dtype=desired_dtype).to(self.device)
         sampler_params = {**self.sparse_structure_sampler_params, **sampler_params}
         z_s = self.sparse_structure_sampler.sample(
             flow_model,
@@ -247,8 +251,11 @@ class TrellisImageTo3DPipeline(Pipeline):
         """
         # Sample structured latent
         flow_model = self.models['slat_flow_model']
+        # figure out model dtype from parameters
+        desired_dtype = next(flow_model.parameters()).dtype #so that it works with half-precision
+
         noise = sp.SparseTensor(
-            feats=torch.randn(coords.shape[0], flow_model.in_channels, dtype=torch.float16).to(self.device),
+            feats=torch.randn(coords.shape[0], flow_model.in_channels, dtype=desired_dtype).to(self.device),
             coords=coords,
         )
         sampler_params = {**self.slat_sampler_params, **sampler_params}

@@ -47,9 +47,9 @@ class TimestepEmbedder(nn.Module):
         return embedding
 
     def forward(self, t):
-        t = t.to(self.mlp[0].weight.dtype)# Make sure t matches the MLP’s dtype (often half if the model is half)
+        t = t.to(self.mlp[0].weight.dtype) # Use the MLP’s existing weight dtype to unify (like float32 or float16).
         t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
-        t_freq = t_freq.to(self.mlp[0].weight.dtype)# also ensure t_freq is cast if needed
+        t_freq = t_freq.to(self.mlp[0].weight.dtype)# also ensuring t_freq is cast if needed, just to be safe
         t_emb = self.mlp(t_freq)
         return t_emb
 
@@ -104,8 +104,6 @@ class SparseStructureFlowModel(nn.Module):
             coords = torch.meshgrid(*[torch.arange(res, device=self.device) for res in [resolution // patch_size] * 3], indexing='ij')
             coords = torch.stack(coords, dim=-1).reshape(-1, 3)
             pos_emb = pos_embedder(coords)
-            if pos_emb.dtype != self.dtype:#to ensure it works with float16 (if pipeline is setup for float16 rather than float32)
-                pos_emb = pos_emb.to(self.dtype)
             self.register_buffer("pos_emb", pos_emb)
 
         self.input_layer = nn.Linear(in_channels * patch_size**3, model_channels)
@@ -178,6 +176,16 @@ class SparseStructureFlowModel(nn.Module):
         nn.init.constant_(self.out_layer.bias, 0)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
+        # 1) unify x, t, cond to the input_layer’s dtype
+        final_dtype = self.input_layer.weight.dtype
+        x = x.to(final_dtype)
+        t = t.to(final_dtype)
+        cond = cond.to(final_dtype)
+        # If we have pos_emb, unify it too
+        if hasattr(self, 'pos_emb') and self.pos_emb is not None:
+            if self.pos_emb.dtype != final_dtype:
+                self.pos_emb = self.pos_emb.to(final_dtype)
+
         assert [*x.shape] == [x.shape[0], self.in_channels, *[self.resolution] * 3], \
                 f"Input shape mismatch, got {x.shape}, expected {[x.shape[0], self.in_channels, *[self.resolution] * 3]}"
 
@@ -192,7 +200,7 @@ class SparseStructureFlowModel(nn.Module):
 
         h = self.input_layer(h)
         h = h + self.pos_emb[None]
-        t_emb = self.t_embedder(t)
+        t_emb = self.t_embedder(t) # TimestepEmbedder already unifies to its own weight dtype
         if self.share_mod:
             t_emb = self.adaLN_modulation(t_emb)
         t_emb = t_emb.type(self.dtype)
@@ -200,7 +208,7 @@ class SparseStructureFlowModel(nn.Module):
         cond = cond.type(self.dtype)
         for block in self.blocks:
             h = block(h, t_emb, cond)
-        h = h.type(x.dtype)
+        h = h.to(x.dtype)  # revert to x’s original dtype.
         h = F.layer_norm(h, h.shape[-1:])
         h = self.out_layer(h)
 
