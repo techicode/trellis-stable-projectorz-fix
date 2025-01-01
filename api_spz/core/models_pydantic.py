@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import Optional, Dict
+from fastapi import Form
 from pydantic import BaseModel, Field
 
 
@@ -10,17 +11,31 @@ class TaskStatus(str, Enum):
     FAILED = "FAILED"
 
 
-class GenerationArg(BaseModel):
-    seed: int = 1
-    ss_guidance_strength: float = Field(7.5, gt=0, le=10)
-    ss_sampling_steps: int = Field(12, gt=0, le=50)
-    slat_guidance_strength: float = Field(3.0, gt=0, le=10)
-    slat_sampling_steps: int = Field(12, gt=0, le=50)
-    preview_frames: int = Field(300, gt=15, le=1000)
-    preview_fps: int = Field(30, gt=0, le=60)
-    mesh_simplify_ratio: float = Field(0.95, gt=0, le=1)
-    texture_size: int = Field(1024, gt=0, le=4096)
-    output_format: str = "glb"
+class GenerationArgForm:
+    def __init__(
+        self,
+        seed: int = Form(1),
+        ss_guidance_strength: float = Form(7.5),
+        ss_sampling_steps: int = Form(12),
+        slat_guidance_strength: float = Form(3.0),
+        slat_sampling_steps: int = Form(12),
+        preview_frames: int = Form(150),
+        preview_fps: int = Form(20),
+        mesh_simplify_ratio: float = Form(0.95),
+        texture_size: int = Form(1024),
+        output_format: str = Form("glb"),
+    ):
+        self.seed = seed
+        self.ss_guidance_strength = ss_guidance_strength
+        self.ss_sampling_steps = ss_sampling_steps
+        self.slat_guidance_strength = slat_guidance_strength
+        self.slat_sampling_steps = slat_sampling_steps
+        self.preview_frames = preview_frames
+        self.preview_fps = preview_fps
+        self.mesh_simplify_ratio = mesh_simplify_ratio
+        self.texture_size = texture_size
+        self.output_format = output_format
+
 
 
 class GenerationResponse(BaseModel):

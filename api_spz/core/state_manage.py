@@ -16,8 +16,8 @@ class TrellisState:
 pipeline = TrellisImageTo3DPipeline.from_pretrained("JeffreyXiang/TRELLIS-image-large")
 pipeline.cuda()
 
-pipeline.to(torch.float32) #cuts memory usage in half
-pipeline.models['image_cond_model'].float()  #cuts memory usage in half
+# pipeline.to(torch.float16) #cuts memory usage in half
+# pipeline.models['image_cond_model'].half()  #cuts memory usage in half
 
 # Global state instance 
 state = TrellisState()

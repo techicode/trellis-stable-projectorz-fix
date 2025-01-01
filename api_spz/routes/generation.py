@@ -7,7 +7,7 @@ import io
 import base64
 import os
 from pathlib import Path
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
 from PIL import Image
 import torch
@@ -17,8 +17,8 @@ from api_spz.core.exceptions import CancelledException
 from api_spz.core.files_manage import file_manager
 from api_spz.core.state_manage import state
 from api_spz.core.models_pydantic import (
-    GenerationArg,
-    GenerationResponse,
+    GenerationArgForm,
+    GenerationResponse, 
     TaskStatus,
     StatusResponse
 )
@@ -87,7 +87,7 @@ async def cleanup_generation_files(keep_videos: bool = False, keep_model: bool =
 
 
 # Validate input
-def _gen_3d_validate_params(file_or_files, b64_or_b64list, arg: GenerationArg):
+def _gen_3d_validate_params(file_or_files, b64_or_b64list, arg: GenerationArgForm):
     """Validate incoming parameters before generation."""
     if (not file_or_files or len(file_or_files) == 0) and (not b64_or_b64list or len(b64_or_b64list) == 0):
         raise HTTPException(400, "No input images provided")
@@ -290,7 +290,7 @@ async def get_status():
 async def generate_no_preview(
     file: Optional[UploadFile] = File(None),
     image_base64: Optional[str] = Form(None),
-    arg: GenerationArg = GenerationArg(),
+    arg: GenerationArgForm = Depends()
 ):
     """Generate a 3D model directly (no preview)."""
     logger.info("Client asked to generate with no previews")
@@ -346,7 +346,7 @@ async def generate_no_preview(
 async def generate_preview(
     file: Optional[UploadFile] = File(None),
     image_base64: Optional[str] = Form(None),
-    arg: GenerationArg = GenerationArg(),
+    arg: GenerationArgForm = Depends(),
 ):
     """ Generate partial 3D structure + Previews, let user resume with /resume_from_preview """
     logger.info("Client asked to generate with previews")
@@ -409,7 +409,7 @@ async def generate_preview(
 async def generate_multi_no_preview(
     file_list: Optional[List[UploadFile]] = File(None),
     image_list_base64: Optional[List[str]] = Form(None),
-    arg: GenerationArg = GenerationArg(),
+    arg: GenerationArgForm = Depends(),
 ):
     """
     Generate a 3D model using multiple images, directly (no preview).
@@ -478,7 +478,7 @@ async def generate_multi_no_preview(
 async def generate_multi_preview(
     file_list: Optional[List[UploadFile]] = File(None),
     image_list_base64: Optional[List[str]] = Form(None),
-    arg: GenerationArg = GenerationArg(),
+    arg: GenerationArgForm = Depends(),
 ):
     """
     Generate partial 3D structure + Previews using multiple images.
