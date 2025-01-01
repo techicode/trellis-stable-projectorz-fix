@@ -72,7 +72,7 @@ def render_frames(sample, extrinsics, intrinsics, options={}, colors_overwrite=N
     for j, (extr, intr) in tqdm(enumerate(zip(extrinsics, intrinsics)), desc='Rendering', disable=not verbose):
         
         if cancel_event and cancel_event.is_set(): 
-            raise CancelledException(f"Cancelled at frame {j}/{len(extrinsics)}.")
+            raise CancelledException(f"User Cancelled")
         
         if not isinstance(sample, MeshExtractResult):
             res = renderer.render(sample, extr, intr, colors_overwrite=colors_overwrite)

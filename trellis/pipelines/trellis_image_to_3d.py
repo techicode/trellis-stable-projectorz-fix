@@ -218,13 +218,13 @@ class TrellisImageTo3DPipeline(Pipeline):
         """
         ret = {}
         if 'mesh' in formats:
-            if cancel_event and cancel_event.is_set(): raise CancelledException(f"Cancelled before mesh slat decode")
+            if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
             ret['mesh'] = self.models['slat_decoder_mesh'](slat)
         if 'gaussian' in formats:
-            if cancel_event and cancel_event.is_set(): raise CancelledException(f"Cancelled before gauss slat decode")
+            if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
             ret['gaussian'] = self.models['slat_decoder_gs'](slat)
         if 'radiance_field' in formats:
-            if cancel_event and cancel_event.is_set(): raise CancelledException(f"Cancelled before radiance slat decode")
+            if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
             ret['radiance_field'] = self.models['slat_decoder_rf'](slat)
         return ret
     
@@ -233,7 +233,6 @@ class TrellisImageTo3DPipeline(Pipeline):
         cond: dict,
         coords: torch.Tensor,
         sampler_params: dict = {},
-        cancel_event=None,
     ) -> sp.SparseTensor:
         """
         Sample structured latent with the given conditioning.
@@ -291,7 +290,8 @@ class TrellisImageTo3DPipeline(Pipeline):
         cond = self.get_cond([image])
         torch.manual_seed(seed)
         coords = self.sample_sparse_structure(cond, num_samples, sparse_structure_sampler_params)
-        slat = self.sample_slat(cond, coords, slat_sampler_params, cancel_event=cancel_event)
+        if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
+        slat = self.sample_slat(cond, coords, slat_sampler_params)
         logger.info("Decoding the SLAT, please wait...")
         return self.decode_slat(slat, formats, cancel_event=cancel_event)
 
@@ -385,6 +385,7 @@ class TrellisImageTo3DPipeline(Pipeline):
             coords = self.sample_sparse_structure(cond, num_samples, sparse_structure_sampler_params)
         slat_steps = {**self.slat_sampler_params, **slat_sampler_params}.get('steps')
         with self.inject_sampler_multi_image('slat_sampler', len(images), slat_steps, mode=mode):
+            if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
             slat = self.sample_slat(cond, coords, slat_sampler_params)
         logger.info("Decoding the SLAT, please wait...")
         return self.decode_slat(slat, formats, cancel_event=cancel_event)
