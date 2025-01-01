@@ -89,6 +89,12 @@ class TrellisImageTo3DPipeline(Pipeline):
         """
         Preprocess the input image.
         """
+        # 1) Force max dimension 1024 BEFORE background removal
+        if max(input.size) > 1024:
+            scale = 1024 / max(input.size)
+            new_w = int(input.width * scale)
+            new_h = int(input.height * scale)
+            input = input.resize((new_w, new_h), Image.Resampling.LANCZOS)
         # if has alpha channel, use it directly; otherwise, remove background
         has_alpha = False
         if input.mode == 'RGBA':
@@ -99,12 +105,9 @@ class TrellisImageTo3DPipeline(Pipeline):
             output = input
         else:
             input = input.convert('RGB')
-            max_size = max(input.size)
-            scale = min(1, 1024 / max_size)
-            if scale < 1:
-                input = input.resize((int(input.width * scale), int(input.height * scale)), Image.Resampling.LANCZOS)
+            # But we already clamped the size above, so no need to clamp here again
             if getattr(self, 'rembg_session', None) is None:
-                self.rembg_session = rembg.new_session('u2net')
+                self.rembg_session = rembg.new_session('u2net', providers=["CPUExecutionProvider"])#drastically reduces VRAM by running on CPU
             output = rembg.remove(input, session=self.rembg_session)
         output_np = np.array(output)
         alpha = output_np[:, :, 3]
@@ -138,7 +141,7 @@ class TrellisImageTo3DPipeline(Pipeline):
             assert all(isinstance(i, Image.Image) for i in image), "Image list should be list of PIL images"
             image = [i.resize((518, 518), Image.LANCZOS) for i in image]
             image = [np.array(i.convert('RGB')).astype(np.float32) / 255 for i in image]
-            image = [torch.from_numpy(i).permute(2, 0, 1).float() for i in image]
+            image = [torch.from_numpy(i).permute(2, 0, 1).half() for i in image]
             image = torch.stack(image).to(self.device)
         else:
             raise ValueError(f"Unsupported type of image: {type(image)}")
@@ -183,7 +186,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         # Sample occupancy latent
         flow_model = self.models['sparse_structure_flow_model']
         reso = flow_model.resolution
-        noise = torch.randn(num_samples, flow_model.in_channels, reso, reso, reso).to(self.device)
+        noise = torch.randn(num_samples, flow_model.in_channels, reso, reso, reso, dtype=torch.float16).to(self.device)
         sampler_params = {**self.sparse_structure_sampler_params, **sampler_params}
         z_s = self.sparse_structure_sampler.sample(
             flow_model,
@@ -245,7 +248,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         # Sample structured latent
         flow_model = self.models['slat_flow_model']
         noise = sp.SparseTensor(
-            feats=torch.randn(coords.shape[0], flow_model.in_channels).to(self.device),
+            feats=torch.randn(coords.shape[0], flow_model.in_channels, dtype=torch.float16).to(self.device),
             coords=coords,
         )
         sampler_params = {**self.slat_sampler_params, **sampler_params}

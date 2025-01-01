@@ -1,4 +1,6 @@
+import gc
 import logging
+import traceback
 from typing import Optional, Literal, List, Union
 import asyncio
 import io
@@ -166,6 +168,8 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
             "cfg_strength": arg.slat_guidance_strength,
         }
         pipeline = state.pipeline
+        torch.cuda.empty_cache()
+        gc.collect()
         # Decide single-image vs multi-image
         if isinstance(pil_images, list):
             if len(pil_images) > 1:# Multi-image scenario:
@@ -190,6 +194,7 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
                 slat_sampler_params = slat_sampler_params,
                 cancel_event=cancel_event )
         torch.cuda.empty_cache()
+        gc.collect()
         return outputs
         # end worker()
     outputs = await asyncio.to_thread(worker)
@@ -200,6 +205,8 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
 async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_fps: int):
     """Generate the preview videos in a thread, saves them to disk."""
     def worker():
+        torch.cuda.empty_cache()
+        gc.collect()
         videos = {
             "gaussian": render_utils.render_video(
                 outputs["gaussian"][0],
@@ -226,6 +233,8 @@ async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_
             #use the video settings that unity3D can work with:
             imageio.mimsave(str(preview_path),  video,  fps=preview_fps,  codec="libx264",  format="mp4", 
                             pixelformat="yuv420p",  ffmpeg_params=["-profile:v", "baseline", "-level", "3.0"])
+            torch.cuda.empty_cache()
+            gc.collect()
 
     await asyncio.to_thread(worker)
 
@@ -233,6 +242,8 @@ async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_
 async def _run_pipeline_generate_glb(outputs, mesh_simplify_ratio: float, texture_size: int):
     """Generate the final GLB model in a thread."""
     def worker():
+        torch.cuda.empty_cache()
+        gc.collect()
         glb = postprocessing_utils.to_glb(
             outputs["gaussian"][0],
             outputs["mesh"][0],
@@ -242,6 +253,8 @@ async def _run_pipeline_generate_glb(outputs, mesh_simplify_ratio: float, textur
         )
         model_path = file_manager.get_temp_path("model.glb")
         glb.export(str(model_path))
+        torch.cuda.empty_cache()
+        gc.collect()
 
     await asyncio.to_thread(worker)
 
@@ -320,7 +333,8 @@ async def generate_no_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
-        logger.error(str(e))
+        error_trace = traceback.format_exc()
+        logger.error(error_trace)
         update_current_generation( status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
@@ -361,7 +375,8 @@ async def generate_preview(
         preview_urls = {
             "gaussian": "/download/preview/gaussian",
             "mesh": "/download/preview/mesh",
-            "radiance": "/download/preview/radiance",
+            #we don't need radiance to make mesh+texture, so omitting for performance reasons:
+            #   "radiance": "/download/preview/radiance",  
         }
         update_current_generation(status=TaskStatus.PREVIEW_READY, progress=100, message="Preview generation complete")
         current_generation["preview_urls"] = preview_urls
@@ -381,7 +396,8 @@ async def generate_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
-        logger.error(str(e))
+        error_trace = traceback.format_exc()
+        logger.error(error_trace)
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
@@ -448,7 +464,8 @@ async def generate_multi_no_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
-        logger.error(str(e))
+        error_trace = traceback.format_exc()
+        logger.error(error_trace)
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
@@ -500,11 +517,12 @@ async def generate_multi_preview(
                     resolution=256,
                     num_frames=arg.preview_frames
                 )["normal"],
-                "radiance": render_utils.render_video(
-                    outputs["radiance_field"][0],
-                    resolution=256,
-                    num_frames=arg.preview_frames
-                )["color"],
+                #we don't need radiance to make mesh+texture, so omitting for performance reasons:
+                #  "radiance": render_utils.render_video(
+                #      outputs["radiance_field"][0],
+                #      resolution=256,
+                #      num_frames=arg.preview_frames
+                #  )["color"],
             }
             for name, video in videos.items():
                 preview_path = file_manager.get_temp_path(f"preview_{name}.mp4")
@@ -523,7 +541,8 @@ async def generate_multi_preview(
         preview_urls = {
             "gaussian": "/download/preview/gaussian",
             "mesh": "/download/preview/mesh",
-            "radiance": "/download/preview/radiance",
+            # we don't need radiance to make mesh+texture, so omitting for performance reasons:
+            #   "radiance": "/download/preview/radiance",
         }
         update_current_generation(status=TaskStatus.PREVIEW_READY, progress=100, message="Preview generation complete")
         current_generation["preview_urls"] = preview_urls
@@ -543,7 +562,8 @@ async def generate_multi_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
-        logger.error(str(e))
+        error_trace = traceback.format_exc()
+        logger.error(error_trace)
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
@@ -601,7 +621,8 @@ async def resume_from_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
-        logger.error(str(e))
+        error_trace = traceback.format_exc()
+        logger.error(error_trace)
         update_current_generation(
             status=TaskStatus.FAILED,
             progress=0,
@@ -627,7 +648,7 @@ async def interrupt_generation():
 
 @router.get("/download/preview/{type}")
 async def download_preview(
-    type: Literal["gaussian", "mesh", "radiance"]
+    type: Literal["gaussian", "mesh",] #"radiance"]  #we don't need radiance to make mesh+texture, so omitting for performance reasons.
 ):
     """Download the preview video for the current generation."""
     logger.info("Client is downloading a video.")

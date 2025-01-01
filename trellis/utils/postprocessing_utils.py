@@ -232,6 +232,7 @@ def postprocess_mesh(
 
     # Simplify
     if simplify and simplify_ratio > 0:
+        vertices = vertices.astype(np.float32) #pipeline returns as half, so cast to float32 else pv.PolyData() will complain
         mesh = pv.PolyData(vertices, np.concatenate([np.full((faces.shape[0], 1), 3), faces], axis=1))
         mesh = mesh.decimate(simplify_ratio, progress_bar=verbose)
         vertices, faces = mesh.points, mesh.faces.reshape(-1, 4)[:, 1:]
