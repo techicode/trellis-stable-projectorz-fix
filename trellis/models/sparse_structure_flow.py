@@ -129,6 +129,9 @@ class SparseStructureFlowModel(nn.Module):
         self.initialize_weights()
         if use_fp16:
             self.convert_to_fp16()
+        #guarantee that the self.dtype will match the actual param dtype:
+        self.dtype = self.input_layer.weight.dtype#to allow it to work with half-precision, etc
+
 
     @property
     def device(self) -> torch.device:
@@ -192,20 +195,15 @@ class SparseStructureFlowModel(nn.Module):
         h = patchify(x, self.patch_size)
         h = h.view(*h.shape[:2], -1).permute(0, 2, 1).contiguous()
 
-        # Convert h to self.dtype (float16)  BEFORE the linear
-        h = h.type(self.dtype)
         # Also ensure pos_emb is half if the model is half:
-        if self.pos_emb.dtype != self.dtype:
-            self.pos_emb = self.pos_emb.to(self.dtype)
+        if self.pos_emb.dtype != final_dtype:
+            self.pos_emb = self.pos_emb.to(final_dtype)
 
         h = self.input_layer(h)
         h = h + self.pos_emb[None]
         t_emb = self.t_embedder(t) # TimestepEmbedder already unifies to its own weight dtype
         if self.share_mod:
             t_emb = self.adaLN_modulation(t_emb)
-        t_emb = t_emb.type(self.dtype)
-        h = h.type(self.dtype)
-        cond = cond.type(self.dtype)
         for block in self.blocks:
             h = block(h, t_emb, cond)
         h = h.to(x.dtype)  # revert to x’s original dtype.

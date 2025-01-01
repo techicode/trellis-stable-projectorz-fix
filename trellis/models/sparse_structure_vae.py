@@ -293,6 +293,10 @@ class SparseStructureDecoder(nn.Module):
         self.middle_block.apply(convert_module_to_f32)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # figure out model dtype from parameters
+        desired_dtype = next(self.parameters()).dtype #so that it works with half-precision
+        x = x.to(dtype=desired_dtype)
+
         h = self.input_layer(x)
         
         h = h.type(self.dtype)

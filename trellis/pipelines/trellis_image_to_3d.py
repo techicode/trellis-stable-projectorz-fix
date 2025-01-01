@@ -189,8 +189,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         # Sample occupancy latent
         flow_model = self.models['sparse_structure_flow_model']
         reso = flow_model.resolution
-        desired_dtype = next(flow_model.parameters()).dtype #figure out dtype, so that it works with half-precision etc.
-        noise = torch.randn(num_samples, flow_model.in_channels, reso, reso, reso, dtype=desired_dtype).to(self.device)
+        noise = torch.randn(num_samples, flow_model.in_channels, reso, reso, reso).to(self.device)
         sampler_params = {**self.sparse_structure_sampler_params, **sampler_params}
         z_s = self.sparse_structure_sampler.sample(
             flow_model,
@@ -201,6 +200,8 @@ class TrellisImageTo3DPipeline(Pipeline):
             cancel_event=cancel_event,
         ).samples
         
+        #ensure z_s is float16, because decoder always expects float16, even in default Trellis implementaiton:
+        z_s = z_s.to(dtype=torch.float16)
         # Decode occupancy latent
         decoder = self.models['sparse_structure_decoder']
         coords = torch.argwhere(decoder(z_s)>0)[:, [0, 2, 3, 4]].int()
