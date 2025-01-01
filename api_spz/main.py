@@ -7,6 +7,7 @@ logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(handler)
+# other scripts can now use this logger by doing 'logger = logging.getLogger("trellis")'
 
 var_cwd = os.getcwd()
 sys.path.append(var_cwd)
@@ -16,20 +17,24 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-logger.info("Trellis API Server is starting up")
+print('')
+logger.info("Trellis API Server is starting up:")
+print('')
 
 # Configure environment, BEFORE including trellis pipeline
-os.environ['ATTN_BACKEND'] = 'xformers'  # or 'flash-attn'
-os.environ['SPCONV_ALGO'] = 'native'    # or 'auto'
-# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'  # Using for now to avoid issues with async memory races
+os.environ['ATTN_BACKEND'] = 'xformers'    # or 'flash-attn'
+os.environ['SPCONV_ALGO'] = 'native'       # or 'auto'
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # can use to avoid issues with async memory races
 
-from api_spz.core.state_manage import state # <---will initialize the trellis pipeline
+from api_spz.core.state_manage import state # this will initialize the trellis pipeline.
 from api_spz.routes import generation
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print('')
     logger.info("Trellis API Server is active and listening.")
+    print('')
     yield
     state.cleanup()#shutdown
 
@@ -37,7 +42,6 @@ app = FastAPI(title="Trellis API", lifespan=lifespan)
 
 
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -45,6 +49,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Add the generation router
 app.include_router(generation.router)

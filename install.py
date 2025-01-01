@@ -12,7 +12,9 @@ def run_command(cmd, desc=None):
     if cmd.startswith('pip install'):
         # Extract everything after 'pip install'
         args = cmd[11:]  # 11 is the length of 'pip install '
-        cmd = f"{sys.executable} -m pip install {args}"
+        # Using --no-cache dir to avoid installing packages from AppdData pip's cache folder.
+        # Because one user accidentally installed old incompatible packages from cache (December 2024)
+        cmd = f"{sys.executable} -m pip install --no-cache-dir {args}"
     
     # Special handling for pip install commands to show progress
     if "pip install" in cmd:

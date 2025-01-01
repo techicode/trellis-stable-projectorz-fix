@@ -14,8 +14,9 @@ from . import samplers
 from ..modules import sparse as sp
 from ..representations import Gaussian, Strivec, MeshExtractResult
 
+import logging
 from api_spz.core.exceptions import CancelledException
-
+logger = logging.getLogger("trellis") #was already setup earlier, during main.
 
 class TrellisImageTo3DPipeline(Pipeline):
     """
@@ -291,6 +292,7 @@ class TrellisImageTo3DPipeline(Pipeline):
         torch.manual_seed(seed)
         coords = self.sample_sparse_structure(cond, num_samples, sparse_structure_sampler_params)
         slat = self.sample_slat(cond, coords, slat_sampler_params, cancel_event=cancel_event)
+        logger.info("Decoding the SLAT, please wait...")
         return self.decode_slat(slat, formats, cancel_event=cancel_event)
 
     @contextmanager
@@ -384,4 +386,5 @@ class TrellisImageTo3DPipeline(Pipeline):
         slat_steps = {**self.slat_sampler_params, **slat_sampler_params}.get('steps')
         with self.inject_sampler_multi_image('slat_sampler', len(images), slat_steps, mode=mode):
             slat = self.sample_slat(cond, coords, slat_sampler_params)
+        logger.info("Decoding the SLAT, please wait...")
         return self.decode_slat(slat, formats, cancel_event=cancel_event)

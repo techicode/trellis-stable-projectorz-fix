@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, Literal, List, Union
 import asyncio
 import io
@@ -28,8 +29,9 @@ from trellis.utils import render_utils, postprocessing_utils
 
 router = APIRouter()
 
-cancel_event = asyncio.Event() # This event will be set by the endpoint /interrupt
+logger = logging.getLogger("trellis") #was already setup earlier, during main.
 
+cancel_event = asyncio.Event() # This event will be set by the endpoint /interrupt
 
 # A single lock to ensure only one generation at a time
 generation_lock = asyncio.Lock()
@@ -205,18 +207,19 @@ async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_
                 num_frames=preview_frames,
                 cancel_event=cancel_event
             )["color"],
-            "mesh": render_utils.render_video(
-                outputs["mesh"][0],
-                resolution=256,
-                num_frames=preview_frames,
-                cancel_event=cancel_event
-            )["normal"],
-            "radiance": render_utils.render_video(
-                outputs["radiance_field"][0],
-                resolution=256,
-                num_frames=preview_frames,
-                cancel_event=cancel_event
-            )["color"]
+            # For performance reasons, skipping these videos:
+            # "mesh": render_utils.render_video(
+            #     outputs["mesh"][0],
+            #     resolution=256,
+            #     num_frames=preview_frames,
+            #     cancel_event=cancel_event
+            # )["normal"],
+            # "radiance": render_utils.render_video(
+            #     outputs["radiance_field"][0],
+            #     resolution=256,
+            #     num_frames=preview_frames,
+            #     cancel_event=cancel_event
+            # )["color"]
         }
         for name, video in videos.items():
             preview_path = file_manager.get_temp_path(f"preview_{name}.mp4")
@@ -276,9 +279,8 @@ async def generate_no_preview(
     image_base64: Optional[str] = Form(None),
     arg: GenerationArg = GenerationArg(),
 ):
-    """
-    Generate a 3D model directly (no preview).
-    """
+    """Generate a 3D model directly (no preview)."""
+    logger.info("Client asked to generate with no previews")
     # Acquire the lock (non-blocking)
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
@@ -318,6 +320,7 @@ async def generate_no_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
+        logger.error(str(e))
         update_current_generation( status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
@@ -331,9 +334,8 @@ async def generate_preview(
     image_base64: Optional[str] = Form(None),
     arg: GenerationArg = GenerationArg(),
 ):
-    """
-    Generate partial 3D structure + Previews, let user resume with /resume_from_preview
-    """
+    """ Generate partial 3D structure + Previews, let user resume with /resume_from_preview """
+    logger.info("Client asked to generate with previews")
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
@@ -379,6 +381,7 @@ async def generate_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
+        logger.error(str(e))
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
@@ -396,6 +399,7 @@ async def generate_multi_no_preview(
     Generate a 3D model using multiple images, directly (no preview).
     The pipeline will receive [img1, img2, ...] as input.
     """
+    logger.info("Client asked to multi-generate with no previews")
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
@@ -444,6 +448,7 @@ async def generate_multi_no_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
+        logger.error(str(e))
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
@@ -462,6 +467,7 @@ async def generate_multi_preview(
     Generate partial 3D structure + Previews using multiple images.
     Let user resume with /resume_from_preview
     """
+    logger.info("Client asked to multi-generate with previews")
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
@@ -537,6 +543,7 @@ async def generate_multi_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
+        logger.error(str(e))
         update_current_generation(status=TaskStatus.FAILED, progress=0, message=str(e))
         await cleanup_generation_files()
         raise HTTPException(status_code=500, detail=str(e))
@@ -551,9 +558,8 @@ async def resume_from_preview(
     mesh_simplify_ratio: float = Query(0.95, gt=0, le=1),
     texture_size: int = Query(1024, gt=0, le=4096),
 ):
-    """
-    Resume from a PREVIEW_READY state, generate final GLB.
-    """
+    """Resume from a PREVIEW_READY state, generate final GLB."""
+    logger.info("Client resumed from a preview video.")
     if is_generation_in_progress():
         raise HTTPException(
             status_code=503,
@@ -595,6 +601,7 @@ async def resume_from_preview(
         await cleanup_generation_files()
         raise HTTPException(status_code=499, detail="Generation cancelled by user")
     except Exception as e:
+        logger.error(str(e))
         update_current_generation(
             status=TaskStatus.FAILED,
             progress=0,
@@ -610,6 +617,7 @@ async def resume_from_preview(
 @router.post("/interrupt")
 async def interrupt_generation():
     """Interrupt the current generation if one is in progress."""
+    logger.info("Client cancelled the generation.")
     if not is_generation_in_progress():
         return {"status": "no_generation_in_progress"}
     cancel_event.set()  # <-- Signal cancellation
@@ -622,8 +630,10 @@ async def download_preview(
     type: Literal["gaussian", "mesh", "radiance"]
 ):
     """Download the preview video for the current generation."""
+    logger.info("Client is downloading a video.")
     preview_path = file_manager.get_temp_path(f"preview_{type}.mp4")
     if not preview_path.exists():
+        logger.error(f"preview_{type}.mp4 not found")
         raise HTTPException(status_code=404, detail="Preview not found")
     return FileResponse(
         str(preview_path),
@@ -635,9 +645,11 @@ async def download_preview(
 @router.get("/download/model")
 async def download_model():
     """Download final 3D model (GLB)."""
+    logger.info("Client is downloading a model.")
     model_path = file_manager.get_temp_path("model.glb")
     if not model_path.exists():
-        raise HTTPException(status_code=404, detail="Model not found")
+        logger.error(f"mesh not found")
+        raise HTTPException(status_code=404, detail="Mesh not found")
     return FileResponse(
         str(model_path),
         media_type="model/gltf-binary",
