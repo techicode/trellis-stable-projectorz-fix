@@ -14,11 +14,15 @@ class TrellisState:
 
 # Initialize the pipeline once at module level
 pipeline = TrellisImageTo3DPipeline.from_pretrained("JeffreyXiang/TRELLIS-image-large")
-pipeline.cuda()
+# DO NOT MOVE TO CUDA YET. We'll be dynamically loading parts between 'cpu' and 'cuda' soon.
+# Kept for precaution:
+#    pipeline.cuda()
 
-# pipeline.to(torch.float16) #cuts memory usage in half
-# pipeline.models['image_cond_model'].half()  #cuts memory usage in half
+# uncomment to reduce memory usage at the cost of numerical precision:
+#pipeline.to(torch.float16) 
+#pipeline.models['image_cond_model'].half()  #cuts memory usage in half
 
-# Global state instance 
+# Global state instance:
 state = TrellisState()
 state.pipeline = pipeline
+print('a')
