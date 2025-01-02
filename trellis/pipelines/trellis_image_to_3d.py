@@ -204,7 +204,8 @@ class TrellisImageTo3DPipeline(Pipeline):
         coords = torch.argwhere(decoder(z_s)>0)[:, [0, 2, 3, 4]].int()
 
         return coords
-
+    
+    
     def decode_slat(
         self,
         slat: sp.SparseTensor,
@@ -222,15 +223,33 @@ class TrellisImageTo3DPipeline(Pipeline):
             dict: The decoded structured latent.
         """
         ret = {}
+
         if 'mesh' in formats:
+            torch.cuda.synchronize() #important, to avoid Out Of Memory exceptions
             if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
-            ret['mesh'] = self.models['slat_decoder_mesh'](slat)
+            with torch.no_grad():
+                self._move_models(['slat_decoder_mesh'], 'cuda', empty_cache=False) #load into gpu
+                ret['mesh'] = self.models['slat_decoder_mesh'](slat)
+                torch.cuda.synchronize() 
+                self._move_models(['slat_decoder_mesh'], 'cpu', empty_cache=True) #unload from gpu memory
+        
         if 'gaussian' in formats:
+            torch.cuda.synchronize() #important, to avoid OOM exceptions
             if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
-            ret['gaussian'] = self.models['slat_decoder_gs'](slat)
+            with torch.no_grad():
+                self._move_models(['slat_decoder_gs'], 'cuda', empty_cache=False) #load into gpu
+                ret['gaussian'] = self.models['slat_decoder_gs'](slat)
+                torch.cuda.synchronize()
+                self._move_models(['slat_decoder_gs'], 'cpu', empty_cache=True) #unload from gpu memory
+        
         if 'radiance_field' in formats:
+            torch.cuda.synchronize() #important, to avoid OOM exceptions
             if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
-            ret['radiance_field'] = self.models['slat_decoder_rf'](slat)
+            with torch.no_grad():
+                self._move_models(['slat_decoder_rf'], 'cuda', empty_cache=False) #load into gpu
+                ret['radiance_field'] = self.models['slat_decoder_rf'](slat)
+                torch.cuda.synchronize() 
+                self._move_models(['slat_decoder_rf'], 'cpu', empty_cache=True) #unload from gpu memory
         return ret
     
     def sample_slat(
@@ -291,13 +310,24 @@ class TrellisImageTo3DPipeline(Pipeline):
             slat_sampler_params (dict): Additional parameters for the structured latent sampler.
             preprocess_image (bool): Whether to preprocess the image.
         """
+        self._move_all_models_to_cpu()
+        self._move_models(['image_cond_model'], 'cuda', empty_cache=False) #load into gpu memory
         if preprocess_image:
             image = self.preprocess_image(image)
         cond = self.get_cond([image])
+        self._move_models(['image_cond_model'], 'cpu', empty_cache=True) #unload from gpu memory, to free up.
+        
         torch.manual_seed(seed)
+
+        self._move_models(['sparse_structure_flow_model', 'sparse_structure_decoder'], 'cuda', empty_cache=False) #load into gpu memory
         coords = self.sample_sparse_structure(cond, num_samples, sparse_structure_sampler_params)
+        self._move_models(['sparse_structure_flow_model', 'sparse_structure_decoder'], 'cpu', empty_cache=True) #unload from gpu memory
         if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
+        
+        self._move_models(['slat_flow_model'], 'cuda', empty_cache=False) #unload from gpu memory
         slat = self.sample_slat(cond, coords, slat_sampler_params)
+        self._move_models(['slat_flow_model'], 'cpu', empty_cache=True) #unload from gpu memory
+
         logger.info("Decoding the SLAT, please wait...")
         return self.decode_slat(slat, formats, cancel_event=cancel_event)
 
@@ -317,6 +347,7 @@ class TrellisImageTo3DPipeline(Pipeline):
             num_images (int): The number of images to condition on.
             num_steps (int): The number of steps to run the sampler for.
         """
+        self._move_all_models_to_cpu()
         sampler = getattr(self, sampler_name)
         setattr(sampler, f'_old_inference_model', sampler._inference_model)
 
@@ -381,17 +412,47 @@ class TrellisImageTo3DPipeline(Pipeline):
             slat_sampler_params (dict): Additional parameters for the structured latent sampler.
             preprocess_image (bool): Whether to preprocess the image.
         """
+        self._move_all_models_to_cpu()
+        self._move_models(['image_cond_model'], 'cuda', empty_cache=False) #load into gpu memory
         if preprocess_image:
             images = [self.preprocess_image(image) for image in images]
         cond = self.get_cond(images)
+        self._move_models(['image_cond_model'], 'cpu', empty_cache=True) #unload from gpu memory, to free up.
+
         cond['neg_cond'] = cond['neg_cond'][:1]
         torch.manual_seed(seed)
+        
         ss_steps = {**self.sparse_structure_sampler_params, **sparse_structure_sampler_params}.get('steps')
         with self.inject_sampler_multi_image('sparse_structure_sampler', len(images), ss_steps, mode=mode):
+            self._move_models(['sparse_structure_flow_model', 'sparse_structure_decoder'], 'cuda', empty_cache=False) #load into gpu memory
             coords = self.sample_sparse_structure(cond, num_samples, sparse_structure_sampler_params)
+            self._move_models(['sparse_structure_flow_model', 'sparse_structure_decoder'], 'cpu', empty_cache=True) #unload from gpu memory
+
         slat_steps = {**self.slat_sampler_params, **slat_sampler_params}.get('steps')
         with self.inject_sampler_multi_image('slat_sampler', len(images), slat_steps, mode=mode):
             if cancel_event and cancel_event.is_set(): raise CancelledException(f"User Cancelled")
+
+            self._move_models(['slat_flow_model'], 'cuda', empty_cache=False) #unload from gpu memory
             slat = self.sample_slat(cond, coords, slat_sampler_params)
+            self._move_models(['slat_flow_model'], 'cpu', empty_cache=True) #unload from gpu memory
+
         logger.info("Decoding the SLAT, please wait...")
         return self.decode_slat(slat, formats, cancel_event=cancel_event)
+    
+
+    def _move_all_models_to_cpu(self):
+        """Moves all models to CPU and frees CUDA memory. Helps to start from a clean state"""
+        self._move_models([name for name in self.models], 'cpu', empty_cache=True)
+        torch.cuda.empty_cache()
+
+
+    def _move_models(self, names:List[str], device:str, empty_cache:bool):
+        """helps to transport several models from gpu to cpu, or the other way around"""
+        for name in names:
+            current_device = next(self.models[name].parameters()).device #works for DinoVision, who doesn't have 'self.device'
+            target_device = torch.device(device)
+            # Only move if current device is different from target device
+            if current_device != target_device:
+                self.models[name].to(device)
+        if empty_cache:
+            torch.cuda.empty_cache()

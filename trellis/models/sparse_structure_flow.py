@@ -39,8 +39,8 @@ class TimestepEmbedder(nn.Module):
         half = dim // 2
         freqs = torch.exp(
             -np.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
-        ).to(device=t.device, dtype=t.dtype) #dtype to make sure it works with float16, not only float32
-        args = t[:, None] * freqs[None]
+        ).to(device=t.device)
+        args = t[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
@@ -104,8 +104,6 @@ class SparseStructureFlowModel(nn.Module):
             coords = torch.meshgrid(*[torch.arange(res, device=self.device) for res in [resolution // patch_size] * 3], indexing='ij')
             coords = torch.stack(coords, dim=-1).reshape(-1, 3)
             pos_emb = pos_embedder(coords)
-            if pos_emb.dtype != self.dtype:#to ensure it works with float16 (if pipeline is setup for float16 rather than float32)
-                pos_emb = pos_emb.to(self.dtype)
             self.register_buffer("pos_emb", pos_emb)
 
         self.input_layer = nn.Linear(in_channels * patch_size**3, model_channels)
@@ -183,14 +181,6 @@ class SparseStructureFlowModel(nn.Module):
 
         h = patchify(x, self.patch_size)
         h = h.view(*h.shape[:2], -1).permute(0, 2, 1).contiguous()
-
-        wanted_type = self.input_layer.weight.dtype #notice, might be different to self.dtype
-
-        if h.dtype != wanted_type: #make sure to will work with half-precision or with float32
-            h = h.type(wanted_type)
-        
-        if self.pos_emb.dtype != wanted_type:# Also ensure pos_emb is half if the model is half
-            self.pos_emb = self.pos_emb.to(wanted_type)
 
         h = self.input_layer(h)
         h = h + self.pos_emb[None]

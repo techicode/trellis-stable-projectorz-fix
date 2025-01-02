@@ -1,5 +1,6 @@
 import gc
 import logging
+import time
 import traceback
 from typing import Optional, Literal, List, Union
 import asyncio
@@ -178,6 +179,7 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
                     seed=arg.seed,
                     sparse_structure_sampler_params = sparse_structure_sampler_params,
                     slat_sampler_params = slat_sampler_params,
+                    formats = ['mesh', 'gaussian',],
                     cancel_event=cancel_event )
             else: # Single PIL image in a list
                 outputs = pipeline.run(
@@ -185,6 +187,7 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
                     seed=arg.seed,
                     sparse_structure_sampler_params = sparse_structure_sampler_params,
                     slat_sampler_params = slat_sampler_params,
+                    formats = ['mesh', 'gaussian',],
                     cancel_event=cancel_event )
         else:# It's truly a single PIL.Image:
             outputs = pipeline.run(
@@ -192,6 +195,7 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
                 seed=arg.seed,
                 sparse_structure_sampler_params = sparse_structure_sampler_params,
                 slat_sampler_params = slat_sampler_params,
+                formats = ['mesh', 'gaussian',],
                 cancel_event=cancel_event )
         torch.cuda.empty_cache()
         gc.collect()
@@ -299,6 +303,8 @@ async def generate_no_preview(
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
     except asyncio.TimeoutError:
         raise HTTPException( status_code=503, detail="Server is busy with another generation")
+    
+    start_time = time.time() 
     # We have the lock => let's reset the "current_generation"
     reset_current_generation()
     try:
@@ -321,6 +327,8 @@ async def generate_no_preview(
         # Clean up intermediate files, keep final model
         await cleanup_generation_files(keep_model=True)
 
+        duration = time.time() - start_time  # Calculate duration before return
+        logger.info(f"Generation completed in {duration:.2f} seconds")
         return GenerationResponse(
             status=TaskStatus.COMPLETE,
             progress=100,

@@ -24,7 +24,7 @@ print('')
 # Configure environment, BEFORE including trellis pipeline
 os.environ['ATTN_BACKEND'] = 'xformers'    # or 'flash-attn'
 os.environ['SPCONV_ALGO'] = 'native'       # or 'auto'
-# os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # can use to avoid issues with async memory races
+#os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # can use to avoid issues with async memory races
 
 from api_spz.core.state_manage import state # this will initialize the trellis pipeline.
 from api_spz.routes import generation
