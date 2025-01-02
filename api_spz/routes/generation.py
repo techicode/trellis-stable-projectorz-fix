@@ -429,6 +429,8 @@ async def generate_multi_no_preview(
     except asyncio.TimeoutError:
         raise HTTPException( status_code=503, detail="Server is busy with another generation")
     
+    start_time = time.time() 
+    # We have the lock => let's reset the "current_generation"
     reset_current_generation()
 
     try:
@@ -460,6 +462,8 @@ async def generate_multi_no_preview(
         # Clean up intermediate files, keep final model
         await cleanup_generation_files(keep_model=True)
 
+        duration = time.time() - start_time  # Calculate duration before return
+        logger.info(f"Generation completed in {duration:.2f} seconds")
         return GenerationResponse(
             status=TaskStatus.COMPLETE,
             progress=100,
