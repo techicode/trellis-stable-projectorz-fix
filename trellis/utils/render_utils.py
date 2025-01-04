@@ -92,8 +92,10 @@ def render_frames(sample, extrinsics, intrinsics, options={}, colors_overwrite=N
         else:
             res = renderer.render(sample, extr, intr)
             if 'normal' not in rets: rets['normal'] = []
+
             if torch.isnan(res['normal']).any() or torch.isinf(res['normal']).any():
-                print("Warning: NaN or Inf values detected in res['normal']")
+                res['normal'] = torch.nan_to_num(res['normal'], nan=0.0, posinf=0.0, neginf=0.0)
+
             rets['normal'].append(np.clip(res['normal'].detach().cpu().numpy().transpose(1, 2, 0) * 255, 0, 255).astype(np.uint8))
     return rets
 
