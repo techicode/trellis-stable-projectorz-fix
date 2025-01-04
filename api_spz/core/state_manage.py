@@ -25,4 +25,3 @@ pipeline.models['image_cond_model'].half()  #cuts memory usage in half
 # Global state instance:
 state = TrellisState()
 state.pipeline = pipeline
-print('a')
