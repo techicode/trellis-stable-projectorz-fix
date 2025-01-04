@@ -206,7 +206,7 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
 
 
 
-async def _run_pipeline_generate_previews(outputs, preview_frames:int, resolution:int, preview_fps:int):
+async def _run_pipeline_generate_previews(outputs, resolution:int, preview_frames:int, preview_fps:int):
     """Generate the preview videos in a thread, saves them to disk."""
     def worker():
         torch.cuda.empty_cache()
@@ -297,6 +297,7 @@ async def generate_no_preview(
     arg: GenerationArgForm = Depends()
 ):
     """Generate a 3D model directly (no preview)."""
+    print()#empty line, for an easier read.
     logger.info("Client asked to generate with no previews")
     # Acquire the lock (non-blocking)
     try:
@@ -357,6 +358,7 @@ async def generate_preview(
     arg: GenerationArgForm = Depends(),
 ):
     """ Generate partial 3D structure + Previews, let user resume with /resume_from_preview """
+    print()#empty line, for an easier read.
     logger.info("Client asked to generate with previews")
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
@@ -423,6 +425,7 @@ async def generate_multi_no_preview(
     Generate a 3D model using multiple images, directly (no preview).
     The pipeline will receive [img1, img2, ...] as input.
     """
+    print()#empty line, for an easier read.
     logger.info("Client asked to multi-generate with no previews")
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
@@ -496,6 +499,7 @@ async def generate_multi_preview(
     Generate partial 3D structure + Previews using multiple images.
     Let user resume with /resume_from_preview
     """
+    print()#empty line, for an easier read.
     logger.info("Client asked to multi-generate with previews")
     try:
         await asyncio.wait_for(generation_lock.acquire(), timeout=0.001)
@@ -591,6 +595,7 @@ async def resume_from_preview(
     texture_size: int = Query(1024, gt=0, le=4096),
 ):
     """Resume from a PREVIEW_READY state, generate final GLB."""
+    print()#empty line, for an easier read.
     logger.info("Client resumed from a preview video.")
     if is_generation_in_progress():
         raise HTTPException(

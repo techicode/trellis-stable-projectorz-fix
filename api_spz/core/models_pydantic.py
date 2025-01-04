@@ -19,7 +19,7 @@ class GenerationArgForm:
         ss_sampling_steps: int = Form(12),
         slat_guidance_strength: float = Form(3.0),
         slat_sampling_steps: int = Form(12),
-        preview_resolution: int = Form(256),
+        preview_resolution: int = Form(512),
         preview_frames: int = Form(150),
         preview_fps: int = Form(20),
         mesh_simplify_ratio: float = Form(0.95),

@@ -17,7 +17,8 @@ class TrellisState:
         global pipeline
         pipeline = TrellisImageTo3DPipeline.from_pretrained("JeffreyXiang/TRELLIS-image-large")
         # Apply precision settings. Reduce memory usage at the cost of numerical precision:
-        print(f"used precision: '{precision}'")
+        print('')
+        print(f"used precision: '{precision}'.  Loading...")
         if precision == "half" or precision=="float16":
             pipeline.to(torch.float16) #cuts memory usage in half
             if "image_cond_model" in pipeline.models:
