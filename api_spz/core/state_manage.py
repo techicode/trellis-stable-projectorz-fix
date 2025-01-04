@@ -19,10 +19,9 @@ pipeline = TrellisImageTo3DPipeline.from_pretrained("JeffreyXiang/TRELLIS-image-
 #    pipeline.cuda()
 
 # uncomment to reduce memory usage at the cost of numerical precision:
-#pipeline.to(torch.float16) 
-#pipeline.models['image_cond_model'].half()  #cuts memory usage in half
+pipeline.to(torch.float16) 
+pipeline.models['image_cond_model'].half()  #cuts memory usage in half
 
 # Global state instance:
 state = TrellisState()
 state.pipeline = pipeline
-print('a')

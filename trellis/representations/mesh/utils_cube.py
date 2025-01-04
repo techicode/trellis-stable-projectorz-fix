@@ -59,6 +59,9 @@ def get_dense_attrs(coords : torch.Tensor, feats : torch.Tensor, res : int, sdf_
     return dense_attrs.reshape(-1, F)
 
 
-def get_defomed_verts(v_pos : torch.Tensor, deform : torch.Tensor, res):
-    return v_pos / res - 0.5 + (1 - 1e-8) / (res * 2) * torch.tanh(deform)
-        
+def get_defomed_verts(v_pos: torch.Tensor, deform: torch.Tensor, res):
+    # Cast v_pos to match deform's dtype without extra allocation when possible
+    half_res = (1 - 1e-8) / (res * 2)
+    offset = - 0.5 + half_res * torch.tanh(deform)
+    #dtype, to work with float16, else it always returns float32:
+    return v_pos.to(dtype=deform.dtype, copy=False) / res + offset
