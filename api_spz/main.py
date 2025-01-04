@@ -3,6 +3,17 @@ import sys
 import platform
 import torch
 
+# -------------LOW VRAM TESTING -------------
+
+
+# only used for debugging, to emulate low-vram graphics cards:
+import torch
+torch.cuda.set_per_process_memory_fraction(0.43)  # Limit to 43% of my available VRAM, for testing.
+# And/or set maximum split size (in MB)
+import os
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.8'
+
+
 # -------------- INFO LOGGING ----------------
 
 print(
@@ -11,12 +22,6 @@ print(
     f"PyTorch: {torch.__version__:<8} | "
     f"CUDA: {'not available' if not torch.cuda.is_available() else torch.version.cuda}"
 )
-# only used for debugging, to emulate low-vram graphics cards:
-# import torch
-# torch.cuda.set_per_process_memory_fraction(0.43)  # Limit to 43% of my available VRAM, for testing.
-# # And/or set maximum split size (in MB)
-# import os
-# os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.8'
 
 import logging
 
