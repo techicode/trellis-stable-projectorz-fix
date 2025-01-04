@@ -65,10 +65,21 @@ for handler in root_logger.handlers:
 # read command-line arguments, passed into this script when launching it:
 import argparse
 parser = argparse.ArgumentParser(description="Trellis API server")
+
 parser.add_argument("--precision", 
-                    choices=["flull", "half"], 
+                    choices=["full", "half", "float32", "float16"], 
                     default="full",
                     help="Set the size of variables for pipeline, to save VRAM and gain performance")
+
+parser.add_argument("--ip", 
+                    type=str, 
+                    default="127.0.0.1", 
+                    help="Specify the IP address on which the server will listen (default: 127.0.0.1)")
+
+parser.add_argument("--port", 
+                    type=int, 
+                    default=7960, 
+                    help="Specify the port on which the server will listen (default: 7960)")
 
 cmd_args = parser.parse_args()
 
@@ -127,6 +138,7 @@ app.add_middleware(
 app.include_router(generation.router)
 
 if __name__ == "__main__":
-    uvicorn.run( app,  host="127.0.0.1",
-                 port=7960,  
+    uvicorn.run( app,  
+                 host=cmd_args.ip,
+                 port=cmd_args.port,  
                  log_level="warning" )

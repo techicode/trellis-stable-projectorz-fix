@@ -206,7 +206,7 @@ async def _run_pipeline_generate_3d( pil_images: Union[Image.Image, List[Image.I
 
 
 
-async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_fps: int):
+async def _run_pipeline_generate_previews(outputs, preview_frames:int, resolution:int, preview_fps:int):
     """Generate the preview videos in a thread, saves them to disk."""
     def worker():
         torch.cuda.empty_cache()
@@ -214,20 +214,20 @@ async def _run_pipeline_generate_previews(outputs, preview_frames: int, preview_
         videos = {
             "gaussian": render_utils.render_video(
                 outputs["gaussian"][0],
-                resolution=256,
+                resolution=resolution,
                 num_frames=preview_frames,
                 cancel_event=cancel_event
             )["color"],
             # For performance reasons, skipping these videos:
             # "mesh": render_utils.render_video(
             #     outputs["mesh"][0],
-            #     resolution=256,
+            #     resolution=resolution,
             #     num_frames=preview_frames,
             #     cancel_event=cancel_event
             # )["normal"],
             # "radiance": render_utils.render_video(
             #     outputs["radiance_field"][0],
-            #     resolution=256,
+            #     resolution=resolution,
             #     num_frames=preview_frames,
             #     cancel_event=cancel_event
             # )["color"]
@@ -377,7 +377,7 @@ async def generate_preview(
 
         # Generate Previews
         update_current_generation( progress=60, message="Generating previews..." )
-        await _run_pipeline_generate_previews(outputs, arg.preview_frames, arg.preview_fps)
+        await _run_pipeline_generate_previews(outputs, arg.preview_resolution, arg.preview_frames, arg.preview_fps)
 
         # Set up preview URLs
         preview_urls = {
@@ -521,18 +521,18 @@ async def generate_multi_preview(
             videos = {
                 "gaussian": render_utils.render_video(
                     outputs["gaussian"][0],
-                    resolution=256,
+                    resolution=arg.preview_resolution,
                     num_frames=arg.preview_frames
                 )["color"],
-                "mesh": render_utils.render_video(
-                    outputs["mesh"][0],
-                    resolution=256,
-                    num_frames=arg.preview_frames
-                )["normal"],
                 #we don't need radiance to make mesh+texture, so omitting for performance reasons:
+                #  "mesh": render_utils.render_video(
+                #      outputs["mesh"][0],
+                #      resolution=arg.preview_resolution,
+                #      num_frames=arg.preview_frames
+                #  )["normal"],
                 #  "radiance": render_utils.render_video(
                 #      outputs["radiance_field"][0],
-                #      resolution=256,
+                #      resolution=arg.preview_resolution,
                 #      num_frames=arg.preview_frames
                 #  )["color"],
             }
