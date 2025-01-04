@@ -8,11 +8,11 @@ import torch
 
 # # only used for debugging, to emulate low-vram graphics cards:
 #
-# import torch
-# torch.cuda.set_per_process_memory_fraction(0.43)  # Limit to 43% of my available VRAM, for testing.
-# # And/or set maximum split size (in MB)
-# import os
-# os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.8'
+import torch
+#torch.cuda.set_per_process_memory_fraction(0.43)  # Limit to 43% of my available VRAM, for testing.
+# And/or set maximum split size (in MB)
+import os
+#os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.8'
 
 
 # -------------- INFO LOGGING ----------------
@@ -60,6 +60,18 @@ for handler in root_logger.handlers:
 
 
 
+# -------------- CMD ARGS PARSE -----------------
+
+# read command-line arguments, passed into this script when launching it:
+import argparse
+parser = argparse.ArgumentParser(description="Trellis API server")
+parser.add_argument("--precision", 
+                    choices=["flull", "half"], 
+                    default="full",
+                    help="Set the size of variables for pipeline, to save VRAM and gain performance")
+
+cmd_args = parser.parse_args()
+
 
 # -------------- PIPELINE SETUP ----------------
 
@@ -73,11 +85,11 @@ print('')
 # Configure environment, BEFORE including trellis pipeline
 os.environ['ATTN_BACKEND'] = 'xformers'    # or 'flash-attn'
 os.environ['SPCONV_ALGO'] = 'native'       # or 'auto'
-#os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # can use to avoid issues with async memory races
 
-# IMPORTING FROM state_manage WILL INITIALIZE THE TRELLIS PIPELINE,
-# inside state_manage file. So, ikmporting it only after the above setup:
+# IMPORTING FROM state_manage AND INITIALIZE THE TRELLIS PIPELINE,
+# So, importing it only AFTER all of the above setup:
 from api_spz.core.state_manage import state 
+state.initialize_pipeline(cmd_args.precision)
 
 
 # -------------- API SERVER SETUP AND LAUNCH ----------------

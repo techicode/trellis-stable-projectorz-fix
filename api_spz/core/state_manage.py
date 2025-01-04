@@ -12,16 +12,21 @@ class TrellisState:
             from shutil import rmtree
             rmtree(self.temp_dir)
 
-# Initialize the pipeline once at module level
-pipeline = TrellisImageTo3DPipeline.from_pretrained("JeffreyXiang/TRELLIS-image-large")
-# DO NOT MOVE TO CUDA YET. We'll be dynamically loading parts between 'cpu' and 'cuda' soon.
-# Kept for precaution:
-#    pipeline.cuda()
-
-# uncomment to reduce memory usage at the cost of numerical precision:
-pipeline.to(torch.float16) 
-pipeline.models['image_cond_model'].half()  #cuts memory usage in half
+    # Define a function to initialize the pipeline
+    def initialize_pipeline(self, precision="full"):
+        global pipeline
+        pipeline = TrellisImageTo3DPipeline.from_pretrained("JeffreyXiang/TRELLIS-image-large")
+        # Apply precision settings. Reduce memory usage at the cost of numerical precision:
+        print(f"used precision: '{precision}'")
+        if precision == "half":
+            pipeline.to(torch.float16) #cuts memory usage in half
+            if "image_cond_model" in pipeline.models:
+                pipeline.models['image_cond_model'].half()  #cuts memory usage in half
+        # Attach the pipeline to the state object:
+        state.pipeline = pipeline
+        # DO NOT MOVE TO CUDA YET. We'll be dynamically loading parts between 'cpu' and 'cuda' soon.
+        # Kept for precaution:
+        #    pipeline.cuda()
 
 # Global state instance:
 state = TrellisState()
-state.pipeline = pipeline
