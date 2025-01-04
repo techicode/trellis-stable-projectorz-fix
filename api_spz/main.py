@@ -15,13 +15,12 @@ logger.addHandler(handler)
 var_cwd = os.getcwd()
 sys.path.append(var_cwd)
 
-import torch
-torch.cuda.set_per_process_memory_fraction(0.55)  # Limit to 50% of available VRAM, for testing
-torch.cuda.empty_cache()
-
-# And/or set maximum split size (in MB)
-import os
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.8'
+# only used for debugging, to emulate low-vram graphics cards:
+# import torch
+# torch.cuda.set_per_process_memory_fraction(0.43)  # Limit to 43% of my available VRAM, for testing.
+# # And/or set maximum split size (in MB)
+# import os
+# os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128,garbage_collection_threshold:0.8'
 
 import uvicorn
 from contextlib import asynccontextmanager
