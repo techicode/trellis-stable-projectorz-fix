@@ -5,8 +5,8 @@ Our Discord server: [here](https://discord.gg/aWbnX2qan2)
 
 I've added support for `float16` instead of `float32` and `int32` instead of `int64` within the pipeline.<br>
 This makes the whole algorithm fit into the VRAM of 8GB GPU cards, if they support half-precision.<br>
-I also added API support to generate via FastAPI, from c# etc.
-FishWoWaters added Gradio support.
+I also added API support to generate via FastAPI, from c# etc.<br>
+FishWoWaters added Gradio support.<br>
 
 Uses flexicubes fork  https://github.com/IgorAherne/flexicubes-stable-projectorz<br>
 I've changed it to use `int32` instead of `int64`, reducing memory by half during SLAT decoding stage.<br>
