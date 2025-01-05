@@ -124,10 +124,10 @@ def render(viewpoint_camera, pc : Gaussian, pipe, bg_color : torch.Tensor, scali
     rendered_image, radii = rasterizer(
         means3D = means3D,
         means2D = means2D,
-        shs = shs,
+        shs = shs.to(torch.float32),
         colors_precomp = colors_precomp,
-        opacities = opacity,
-        scales = scales,
+        opacities = opacity.to(torch.float32),
+        scales = scales.to(torch.float32),
         rotations = rotations,
         cov3D_precomp = cov3D_precomp
     )
