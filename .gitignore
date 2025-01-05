@@ -40,6 +40,7 @@ bld/
 
 # Ignore .glb and .mp4 files only in the root directory
 /*.glb
+/*.ply
 /*.mp4
 /*.obj
 /*.fbx

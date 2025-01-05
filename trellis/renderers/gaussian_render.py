@@ -124,7 +124,7 @@ def render(viewpoint_camera, pc : Gaussian, pipe, bg_color : torch.Tensor, scali
     rendered_image, radii = rasterizer(
         means3D = means3D,
         means2D = means2D,
-        shs = shs.to(torch.float32),
+        shs = shs.to(torch.float32), #need everything to be in float32 here. Don't worry, no big memory in this case.
         colors_precomp = colors_precomp,
         opacities = opacity.to(torch.float32),
         scales = scales.to(torch.float32),
