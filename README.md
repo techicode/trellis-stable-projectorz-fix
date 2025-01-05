@@ -3,12 +3,12 @@ A One-click installer for Windows: [(Python 3.11, Cuda 11.8, Torch 2.1.2)](https
 Repository for integration with the [StableProjectorz](https://stableprojectorz.com/), a free AI-texturing tool.<br>
 Our Discord server: [here](https://discord.gg/aWbnX2qan2)
 
-<br><br>
-<h2>Original Trellis Repo description:</h2>
-
 I've added support for float16 instead of float32 within the pipeline, to fit into the VRAM of 8GB GPU cards, if they support half-precision.
 Uses flexicubes fork  https://github.com/IgorAherne/flexicubes-stable-projectorz
 I've changed it to use int32 instead of int64, reducing memory by half during SLAT decoding stage.
+
+<br><br>
+<h2>Original Trellis Repo description:</h2>
 
 <br><br><br>
 <img src="assets/logo.webp" width="100%" align="center">
