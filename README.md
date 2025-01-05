@@ -7,7 +7,7 @@ I've added support for `float16` instead of `float32` within the pipeline.<br>
 This makes the whole algorithm fit into the VRAM of 8GB GPU cards, if they support half-precision.<br>
 
 Uses flexicubes fork  https://github.com/IgorAherne/flexicubes-stable-projectorz<br>
-I've changed it to use int32 instead of int64, reducing memory by half during SLAT decoding stage.<br>
+I've changed it to use `int32` instead of `int64`, reducing memory by half during SLAT decoding stage.<br>
 
 <br>
 <h2>Original Trellis Repo description:</h2>
