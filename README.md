@@ -5,13 +5,14 @@ Our Discord server: [here](https://discord.gg/aWbnX2qan2)
 
 I've added support for `float16` instead of `float32` within the pipeline.<br>
 This makes the whole algorithm fit into the VRAM of 8GB GPU cards, if they support half-precision.<br>
+
 Uses flexicubes fork  https://github.com/IgorAherne/flexicubes-stable-projectorz<br>
 I've changed it to use int32 instead of int64, reducing memory by half during SLAT decoding stage.<br>
 
-<br><br>
+<br>
 <h2>Original Trellis Repo description:</h2>
 
-<br><br><br>
+<br><br>
 <img src="assets/logo.webp" width="100%" align="center">
 <h1 align="center">Structured 3D Latents<br>for Scalable and Versatile 3D Generation</h1>
 <p align="center"><a href="https://arxiv.org/abs/2412.01506"><img src='https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv&logoColor=white' alt='arXiv'></a>
